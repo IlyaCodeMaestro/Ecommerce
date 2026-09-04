@@ -48,4 +48,3 @@ func TestMemoryCache_Delete(t *testing.T) {
 		t.Fatalf("expected deleted key to return false")
 	}
 }
-
