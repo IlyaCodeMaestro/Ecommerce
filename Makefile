@@ -1,34 +1,55 @@
-.PHONY: up down logs ps test bench build-front build-back
+.PHONY: up down logs ps test bench build-front build-back k8s-up k8s-down tf-apply hpa-watch
 
-# Start complete infrastructure stack (Postgres, Redis, Kafka, Prometheus, Grafana, API, Worker)
+# ==========================================
+# Docker Compose Stack
+# ==========================================
 up:
 	cd deploy && docker compose up -d --build
 
-# Stop and remove containers
 down:
 	cd deploy && docker compose down
 
-# Follow logs from all services
 logs:
 	cd deploy && docker compose logs -f
 
-# Check container health & status
 ps:
 	cd deploy && docker compose ps
 
-# Run Go backend tests
+# ==========================================
+# Kubernetes (KinD / Docker Desktop)
+# ==========================================
+k8s-cluster:
+	kind create cluster --name ecommerce --config deploy/k8s/kind-cluster.yaml
+
+k8s-apply:
+	kubectl apply -f deploy/k8s/
+
+k8s-down:
+	kind delete cluster --name ecommerce
+
+hpa-watch:
+	kubectl get hpa -n ecommerce -w
+
+# ==========================================
+# Terraform (IaC)
+# ==========================================
+tf-init:
+	cd deploy/terraform && terraform init
+
+tf-apply:
+	cd deploy/terraform && terraform apply -auto-approve
+
+# ==========================================
+# Testing & Building
+# ==========================================
 test:
 	cd backend && go test -v -race ./...
 
-# Run 10,000 RPS k6 benchmark
 bench:
 	docker run --rm -i --network=host grafana/k6 run - < deploy/loadtest/benchmark_10k_rps.js
 
-# Build React frontend
 build-front:
 	cd frontend && npm install && npm run build
 
-# Build Go backend binaries
 build-back:
 	cd backend && go build -o bin/api ./cmd/api && go build -o bin/worker ./cmd/worker
-

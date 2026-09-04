@@ -169,9 +169,34 @@ ecommerce-app/
 │   └── package.json
 ├── deploy/
 │   ├── docker-compose.yml         # Complete 7-service production stack
+│   ├── k8s/                       # Multi-node Kubernetes manifests (HPA, Ingress, StatefulSets)
+│   ├── terraform/                 # Infrastructure as Code (Helm Ingress-Nginx + K8s orchestration)
 │   ├── prometheus/                # Scrape configuration
 │   ├── grafana/                   # Auto-provisioning & 10k RPS dashboard
 │   └── loadtest/                  # k6 stress test scenario
-├── Makefile                       # Developer shortcuts (make up, make bench)
+├── Makefile                       # Developer shortcuts (make up, make k8s-cluster, make bench)
 └── README.md
 ```
+
+---
+
+## ☸️ Production Kubernetes & Terraform (100% Free)
+
+### Can we run Kubernetes & Terraform for $0?
+- **Cloud K8s (AWS EKS / GKE)**: Costs **$800–$1,500/month** (EKS master node alone is ~$73/mo; 10k RPS worker nodes and bandwidth cost hundreds).
+- **Free Enterprise Simulation**:
+  1. **Terraform**: 100% free open-source IaC tool.
+  2. **Multi-Node Cluster (KinD / Docker Desktop K8s)**: 100% free, 1-to-1 identical to AWS EKS with the same `kubectl` commands, Ingress Controllers, and HPA autoscaling.
+
+### Deploying to Kubernetes:
+```bash
+# 1. Create 3-node Kubernetes cluster (1 control plane + 2 worker nodes)
+make k8s-cluster
+
+# 2. Deploy complete e-commerce stack with HPA and Ingress
+make k8s-apply
+
+# 3. Watch pods scale dynamically under load
+make hpa-watch
+```
+

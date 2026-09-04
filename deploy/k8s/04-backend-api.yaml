@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+  namespace: ecommerce
+  labels:
+    app: backend-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: backend-api
+  template:
+    metadata:
+      labels:
+        app: backend-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/ilyacodemaestro/ecommerce/api:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DATABASE_URL
+              value: "postgres://postgres:postgres@postgres.ecommerce.svc.cluster.local:5432/ecommerce?sslmode=disable"
+            - name: REDIS_ADDR
+              value: "redis.ecommerce.svc.cluster.local:6379"
+            - name: KAFKA_BROKERS
+              value: "redpanda.ecommerce.svc.cluster.local:29092"
+            - name: KAFKA_TOPIC
+              value: "orders.created"
+          ports:
+            - containerPort: 8080
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 500m
+              memory: 256Mi
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api
+  namespace: ecommerce
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: backend-api

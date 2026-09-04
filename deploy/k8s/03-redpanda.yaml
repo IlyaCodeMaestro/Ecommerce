@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redpanda
+  namespace: ecommerce
+spec:
+  serviceName: redpanda
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redpanda
+  template:
+    metadata:
+      labels:
+        app: redpanda
+    spec:
+      containers:
+        - name: redpanda
+          image: docker.redpanda.com/redpandadata/redpanda:v24.1.2
+          command:
+            - redpanda
+            - start
+            - --smp
+            - "1"
+            - --memory
+            - 1G
+            - --reserve-memory
+            - 0M
+            - --overprovisioned
+            - --node-id
+            - "0"
+            - --kafka-addr
+            - internal://0.0.0.0:29092,external://0.0.0.0:9092
+            - --advertise-kafka-addr
+            - internal://redpanda.ecommerce.svc.cluster.local:29092,external://localhost:9092
+          ports:
+            - containerPort: 29092
+              name: kafka-internal
+            - containerPort: 9092
+              name: kafka-external
+            - containerPort: 9644
+              name: admin
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redpanda
+  namespace: ecommerce
+spec:
+  ports:
+    - port: 29092
+      targetPort: 29092
+      name: kafka-internal
+    - port: 9092
+      targetPort: 9092
+      name: kafka-external
+    - port: 9644
+      targetPort: 9644
+      name: admin
+  selector:
+    app: redpanda
