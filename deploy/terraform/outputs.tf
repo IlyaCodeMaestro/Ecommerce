@@ -17,3 +17,4 @@ output "hpa_status_command" {
   value       = "kubectl get hpa -n ecommerce"
   description = "Command to observe dynamic horizontal pod scaling under 10k RPS"
 }
+

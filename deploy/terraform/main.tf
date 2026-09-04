@@ -60,3 +60,4 @@ resource "null_resource" "k8s_manifests" {
     command = "kubectl apply -f ${path.module}/../k8s/"
   }
 }
+
