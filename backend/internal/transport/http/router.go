@@ -1,12 +1,13 @@
 package http
 
 import (
+	"ecommerce-backend/internal/repository/redis"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func NewRouter(handler *Handler) *chi.Mux {
+func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 	r := chi.NewRouter()
 
 	// High-throughput middleware stack
@@ -24,8 +25,14 @@ func NewRouter(handler *Handler) *chi.Mux {
 		r.Get("/products", handler.ListProducts)
 		r.Get("/products/{id}", handler.GetProductByID)
 
-		r.Post("/orders", handler.CreateOrder)
+		// Orders endpoints with rate limiting on order creation
+		r.Group(func(orderRouter chi.Router) {
+			orderRouter.Use(RateLimitMiddleware(redisClient, 40, 60)) // 40 orders/min per IP
+			orderRouter.Post("/orders", handler.CreateOrder)
+		})
+
 		r.Get("/orders/{id}", handler.GetOrderByID)
+		r.Get("/orders/{id}/stream", handler.StreamOrderStatus) // Real-time SSE stream
 	})
 
 	return r

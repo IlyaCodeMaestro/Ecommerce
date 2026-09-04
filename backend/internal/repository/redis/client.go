@@ -9,8 +9,9 @@ import (
 )
 
 type Client struct {
-	RDB         *redis.Client
-	reserveSHA  string
+	RDB           *redis.Client
+	reserveSHA    string
+	rateLimitSHA  string
 }
 
 // Lua script to atomically check and reserve stock without race conditions
@@ -26,6 +27,22 @@ if current >= requested then
     return 1
 else
     return 0
+end
+`
+
+// Lua script for atomic sliding window rate limiting
+const rateLimitScript = `
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local window = tonumber(ARGV[2])
+local current = redis.call('INCR', key)
+if current == 1 then
+    redis.call('EXPIRE', key, window)
+end
+if current > limit then
+    return 0
+else
+    return 1
 end
 `
 
@@ -48,15 +65,21 @@ func NewClient(addr string) (*Client, error) {
 		return nil, fmt.Errorf("failed to connect to redis at %s: %w", addr, err)
 	}
 
-	// Pre-load Lua script for ultra-fast EVALSHA execution
-	sha, err := rdb.ScriptLoad(ctx, reserveStockScript).Result()
+	// Pre-load Lua scripts for ultra-fast EVALSHA execution
+	shaReserve, err := rdb.ScriptLoad(ctx, reserveStockScript).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load stock reservation lua script: %w", err)
 	}
 
+	shaRate, err := rdb.ScriptLoad(ctx, rateLimitScript).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load rate limit lua script: %w", err)
+	}
+
 	return &Client{
-		RDB:        rdb,
-		reserveSHA: sha,
+		RDB:          rdb,
+		reserveSHA:   shaReserve,
+		rateLimitSHA: shaRate,
 	}, nil
 }
 
@@ -78,7 +101,6 @@ func (c *Client) ReserveStock(ctx context.Context, productID int64, quantity int
 	key := fmt.Sprintf("stock:%d", productID)
 	val, err := c.RDB.EvalSha(ctx, c.reserveSHA, []string{key}, quantity).Result()
 	if err != nil {
-		// Fallback to Eval if SHA was lost due to redis restart
 		val, err = c.RDB.Eval(ctx, reserveStockScript, []string{key}, quantity).Result()
 		if err != nil {
 			return 0, err
@@ -89,6 +111,32 @@ func (c *Client) ReserveStock(ctx context.Context, productID int64, quantity int
 		return 0, fmt.Errorf("unexpected return type from lua script: %T", val)
 	}
 	return res, nil
+}
+
+// AllowRequest checks rate limit atomically using Token/Counter bucket
+func (c *Client) AllowRequest(ctx context.Context, key string, limit int, windowSeconds int) (bool, error) {
+	val, err := c.RDB.EvalSha(ctx, c.rateLimitSHA, []string{key}, limit, windowSeconds).Result()
+	if err != nil {
+		val, err = c.RDB.Eval(ctx, rateLimitScript, []string{key}, limit, windowSeconds).Result()
+		if err != nil {
+			return true, err // Fallback to allowing on Redis failure to prevent total outage
+		}
+	}
+	res, ok := val.(int64)
+	if !ok {
+		return true, nil
+	}
+	return res == 1, nil
+}
+
+// Publish broadcasts event to a Redis Pub/Sub channel
+func (c *Client) Publish(ctx context.Context, channel string, message interface{}) error {
+	return c.RDB.Publish(ctx, channel, message).Err()
+}
+
+// Subscribe returns a PubSub subscription to specified channels
+func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
+	return c.RDB.Subscribe(ctx, channels...)
 }
 
 func (c *Client) Close() error {

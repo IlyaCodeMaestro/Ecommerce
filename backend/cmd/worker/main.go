@@ -11,6 +11,7 @@ import (
 
 	"ecommerce-backend/internal/queue/kafka"
 	"ecommerce-backend/internal/repository/postgres"
+	"ecommerce-backend/internal/repository/redis"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -56,8 +57,17 @@ func main() {
 		}
 	}()
 
-	// 3. Kafka consumer
-	consumer := kafka.NewConsumer(kafkaBroker, kafkaTopic, kafkaGroupID, orderRepo)
+	// 3. Redis connection for Pub/Sub notifications
+	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
+	redisClient, err := redis.NewClient(redisAddr)
+	if err != nil {
+		log.Printf("[WORKER WARNING] Redis connect failed, real-time pubsub disabled: %v", err)
+	} else {
+		defer redisClient.Close()
+	}
+
+	// 4. Kafka consumer
+	consumer := kafka.NewConsumer(kafkaBroker, kafkaTopic, kafkaGroupID, orderRepo, redisClient)
 	defer consumer.Close()
 
 	// Launch batch worker: batchSize=200, flushTimeout=100ms

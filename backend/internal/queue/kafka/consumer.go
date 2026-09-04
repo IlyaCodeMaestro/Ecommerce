@@ -8,17 +8,19 @@ import (
 
 	"ecommerce-backend/internal/domain"
 	"ecommerce-backend/internal/repository/postgres"
+	"ecommerce-backend/internal/repository/redis"
 	"ecommerce-backend/pkg/metrics"
-	"github.com/segmentio/kafka-go"
+	kafkaPkg "github.com/segmentio/kafka-go"
 )
 
 type Consumer struct {
-	reader    *kafka.Reader
-	orderRepo *postgres.OrderRepo
+	reader      *kafkaPkg.Reader
+	orderRepo   *postgres.OrderRepo
+	redisClient *redis.Client
 }
 
-func NewConsumer(broker string, topic string, groupID string, orderRepo *postgres.OrderRepo) *Consumer {
-	reader := kafka.NewReader(kafka.ReaderConfig{
+func NewConsumer(broker string, topic string, groupID string, orderRepo *postgres.OrderRepo, redisClient *redis.Client) *Consumer {
+	reader := kafkaPkg.NewReader(kafkaPkg.ReaderConfig{
 		Brokers:        []string{broker},
 		Topic:          topic,
 		GroupID:        groupID,
@@ -29,8 +31,9 @@ func NewConsumer(broker string, topic string, groupID string, orderRepo *postgre
 	})
 
 	return &Consumer{
-		reader:    reader,
-		orderRepo: orderRepo,
+		reader:      reader,
+		orderRepo:   orderRepo,
+		redisClient: redisClient,
 	}
 }
 
@@ -54,6 +57,20 @@ func (c *Consumer) StartBatchWorker(ctx context.Context, batchSize int, flushTim
 			fmt.Printf("[KAFKA WORKER ERROR] Failed to batch save %d orders to Postgres: %v\n", count, err)
 		} else {
 			metrics.KafkaOrdersConsumedTotal.Add(float64(count))
+
+			// Broadcast completion event to Redis Pub/Sub for real-time SSE frontend clients
+			if c.redisClient != nil {
+				for _, event := range batch {
+					statusPayload, _ := json.Marshal(map[string]interface{}{
+						"order_id":   event.OrderID,
+						"status":     "COMPLETED",
+						"message":    "Order successfully persisted to PostgreSQL",
+						"timestamp":  time.Now().UTC(),
+						"step":       3,
+					})
+					_ = c.redisClient.Publish(flushCtx, fmt.Sprintf("order:%s:status", event.OrderID), string(statusPayload))
+				}
+			}
 		}
 		batch = batch[:0] // reset slice keeping allocated capacity
 	}

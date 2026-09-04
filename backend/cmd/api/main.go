@@ -59,8 +59,8 @@ func main() {
 	orderService := service.NewOrderService(orderRepo, productRepo, redisClient, kafkaProducer, productService)
 
 	// 5. HTTP Handler & Router
-	handler := transporthttp.NewHandler(productService, orderService)
-	router := transporthttp.NewRouter(handler)
+	handler := transporthttp.NewHandler(productService, orderService, redisClient)
+	router := transporthttp.NewRouter(handler, redisClient)
 
 	// 6. Tuned HTTP Server for maximum throughput
 	srv := &http.Server{

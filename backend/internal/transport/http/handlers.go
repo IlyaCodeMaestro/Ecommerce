@@ -3,11 +3,13 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"ecommerce-backend/internal/domain"
+	"ecommerce-backend/internal/repository/redis"
 	"ecommerce-backend/internal/service"
 	"github.com/go-chi/chi/v5"
 )
@@ -15,12 +17,14 @@ import (
 type Handler struct {
 	productService *service.ProductService
 	orderService   *service.OrderService
+	redisClient    *redis.Client
 }
 
-func NewHandler(productService *service.ProductService, orderService *service.OrderService) *Handler {
+func NewHandler(productService *service.ProductService, orderService *service.OrderService, redisClient *redis.Client) *Handler {
 	return &Handler{
 		productService: productService,
 		orderService:   orderService,
+		redisClient:    redisClient,
 	}
 }
 
@@ -28,7 +32,7 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":    "ok",
 		"timestamp": time.Now().UTC(),
-		"version":   "1.0.0-production",
+		"version":   "1.1.0-production",
 	})
 }
 
@@ -139,6 +143,76 @@ func (h *Handler) GetOrderByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, order)
+}
+
+// StreamOrderStatus streams real-time Server-Sent Events (SSE) for order lifecycle transitions
+func (h *Handler) StreamOrderStatus(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	orderID := chi.URLParam(r, "id")
+	if orderID == "" {
+		http.Error(w, "Missing order id", http.StatusBadRequest)
+		return
+	}
+
+	// SSE response headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// 1. Initial State: Enqueued in Kafka
+	fmt.Fprintf(w, "data: {\"order_id\":\"%s\",\"status\":\"ACCEPTED\",\"step\":1,\"message\":\"Dispatched to Kafka queue\",\"timestamp\":\"%s\"}\n\n", orderID, time.Now().UTC().Format(time.RFC3339))
+	flusher.Flush()
+
+	// 2. Check if order was already persisted by worker in Postgres
+	existing, _ := h.orderService.GetOrderByID(r.Context(), orderID)
+	if existing != nil {
+		fmt.Fprintf(w, "data: {\"order_id\":\"%s\",\"status\":\"COMPLETED\",\"step\":3,\"message\":\"Order verified in PostgreSQL\",\"timestamp\":\"%s\"}\n\n", orderID, time.Now().UTC().Format(time.RFC3339))
+		flusher.Flush()
+		return
+	}
+
+	// Intermediate step notification
+	time.Sleep(150 * time.Millisecond)
+	fmt.Fprintf(w, "data: {\"order_id\":\"%s\",\"status\":\"PROCESSING\",\"step\":2,\"message\":\"Worker batch processing...\",\"timestamp\":\"%s\"}\n\n", orderID, time.Now().UTC().Format(time.RFC3339))
+	flusher.Flush()
+
+	// 3. Subscribe to Redis Pub/Sub channel for live completion notification
+	if h.redisClient != nil {
+		channelName := fmt.Sprintf("order:%s:status", orderID)
+		pubsub := h.redisClient.Subscribe(r.Context(), channelName)
+		defer pubsub.Close()
+
+		ch := pubsub.Channel()
+		timeout := time.After(30 * time.Second)
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-timeout:
+				// Fallback timeout check against DB
+				finalCheck, _ := h.orderService.GetOrderByID(r.Context(), orderID)
+				if finalCheck != nil {
+					fmt.Fprintf(w, "data: {\"order_id\":\"%s\",\"status\":\"COMPLETED\",\"step\":3,\"message\":\"Order completed in PostgreSQL\",\"timestamp\":\"%s\"}\n\n", orderID, time.Now().UTC().Format(time.RFC3339))
+					flusher.Flush()
+				}
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				fmt.Fprintf(w, "data: %s\n\n", msg.Payload)
+				flusher.Flush()
+				return
+			}
+		}
+	}
 }
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

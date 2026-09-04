@@ -36,7 +36,9 @@ export async function createOrder(items, userId = 'user-frontend') {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Order failed' }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+    const error = new Error(err.error || `HTTP ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
 
   const data = await res.json();
@@ -52,4 +54,31 @@ export async function checkHealth() {
   } catch (err) {
     return { healthy: false, error: err.message };
   }
+}
+
+// Real-time Server-Sent Events (SSE) subscriber
+export function subscribeToOrderStatus(orderId, onMessage, onError) {
+  const sseUrl = `${API_BASE_URL}/api/v1/orders/${orderId}/stream`;
+  const eventSource = new EventSource(sseUrl);
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      onMessage(data);
+      if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+        eventSource.close();
+      }
+    } catch (e) {
+      console.warn('SSE message parse error:', e);
+    }
+  };
+
+  eventSource.onerror = (err) => {
+    if (onError) onError(err);
+    eventSource.close();
+  };
+
+  return () => {
+    eventSource.close();
+  };
 }
