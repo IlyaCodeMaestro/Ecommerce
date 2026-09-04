@@ -49,3 +49,9 @@ deploy/prometheus/data/
 deploy/postgres/data/
 deploy/redis/data/
 deploy/redpanda/data/
+
+# Internal Engineering & Dev Docs (not for production git)
+SYSTEM_INTERNALS.md
+*.dev.md
+DEV_*.md
+
