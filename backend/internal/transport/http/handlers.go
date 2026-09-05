@@ -39,7 +39,9 @@ func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ListProducts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+	query := q.Get("q")
 	category := q.Get("category")
+	sort := q.Get("sort")
 
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	if limit <= 0 || limit > 100 {
@@ -51,24 +53,37 @@ func (h *Handler) ListProducts(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 
+	var minPrice, maxPrice *float64
+	if minStr := q.Get("min_price"); minStr != "" {
+		if val, err := strconv.ParseFloat(minStr, 64); err == nil {
+			minPrice = &val
+		}
+	}
+	if maxStr := q.Get("max_price"); maxStr != "" {
+		if val, err := strconv.ParseFloat(maxStr, 64); err == nil {
+			maxPrice = &val
+		}
+	}
+
 	filter := domain.ProductFilter{
+		Query:    query,
 		Category: category,
+		MinPrice: minPrice,
+		MaxPrice: maxPrice,
+		SortBy:   sort,
 		Limit:    limit,
 		Offset:   offset,
 	}
 
-	products, err := h.productService.ListProducts(r.Context(), filter)
+	result, err := h.productService.SearchProducts(r.Context(), filter)
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to list products")
+		respondError(w, http.StatusInternalServerError, "failed to search products")
 		return
 	}
 
 	// Browser cache headers for client-side speed
 	w.Header().Set("Cache-Control", "public, max-age=5")
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"count":    len(products),
-		"products": products,
-	})
+	respondJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) GetProductByID(w http.ResponseWriter, r *http.Request) {

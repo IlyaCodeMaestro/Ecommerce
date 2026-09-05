@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_price ON products(price);
 CREATE INDEX IF NOT EXISTS idx_products_created_at ON products(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_products_fts_gin ON products USING gin(to_tsvector('english', name || ' ' || coalesce(description, '')));
+CREATE INDEX IF NOT EXISTS idx_products_cat_price ON products(category, price);
+
 
 CREATE TABLE IF NOT EXISTS orders (
     id VARCHAR(64) PRIMARY KEY,

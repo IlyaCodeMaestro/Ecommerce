@@ -1,10 +1,22 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
-export async function fetchProducts(category = '', limit = 50, offset = 0) {
+export async function fetchProducts(options = {}) {
   const params = new URLSearchParams();
-  if (category) params.append('category', category);
-  params.append('limit', limit.toString());
-  params.append('offset', offset.toString());
+
+  // Support both legacy fetchProducts('laptops') and object fetchProducts({ category: 'laptops' })
+  if (typeof options === 'string') {
+    if (options && options !== 'all') params.append('category', options);
+    params.append('limit', '50');
+  } else {
+    const { category = '', query = '', minPrice = null, maxPrice = null, sort = '', limit = 50, offset = 0 } = options;
+    if (category && category !== 'all') params.append('category', category);
+    if (query) params.append('q', query);
+    if (minPrice !== null && minPrice !== undefined) params.append('min_price', minPrice.toString());
+    if (maxPrice !== null && maxPrice !== undefined) params.append('max_price', maxPrice.toString());
+    if (sort) params.append('sort', sort);
+    params.append('limit', limit.toString());
+    params.append('offset', offset.toString());
+  }
 
   const res = await fetch(`${API_BASE_URL}/api/v1/products?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to load products: ${res.statusText}`);

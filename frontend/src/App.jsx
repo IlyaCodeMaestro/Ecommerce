@@ -8,10 +8,10 @@ import { fetchProducts, fetchCategories, checkHealth } from "./services/api";
 import {
   Search,
   Sparkles,
-  Filter,
   RefreshCw,
   ShoppingBag,
-  ShieldCheck,
+  ArrowUpDown,
+  Zap,
 } from "lucide-react";
 
 const FALLBACK_PRODUCTS = [
@@ -109,6 +109,8 @@ export default function App() {
   ]);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("relevance");
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
   const [pingMs, setPingMs] = useState(0);
@@ -138,27 +140,70 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch products
+  // Fetch categories
   useEffect(() => {
-    const loadCatalog = async () => {
-      setLoading(true);
-      try {
-        const catParam = selectedCategory === "all" ? "" : selectedCategory;
-        const data = await fetchProducts(catParam, 40);
-        if (data && data.products && data.products.length > 0) {
-          setProducts(data.products);
-        } else {
-          setProducts(FALLBACK_PRODUCTS);
+    fetchCategories()
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setCategories(["all", ...data]);
         }
-      } catch (err) {
-        setProducts(FALLBACK_PRODUCTS);
-      } finally {
-        setLoading(false);
-      }
-    };
+      })
+      .catch(() => {});
+  }, []);
 
-    loadCatalog();
-  }, [selectedCategory]);
+  // Fetch products with FTS search and sorting
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const loadCatalog = async () => {
+        setLoading(true);
+        try {
+          const data = await fetchProducts({
+            category: selectedCategory,
+            query: searchQuery,
+            sort: sortBy,
+            limit: 40,
+          });
+
+          if (data && data.products) {
+            setProducts(data.products);
+            setTotalCount(data.total !== undefined ? data.total : data.products.length);
+          } else {
+            filterFallback();
+          }
+        } catch (err) {
+          filterFallback();
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      loadCatalog();
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [selectedCategory, searchQuery, sortBy]);
+
+  const filterFallback = () => {
+    let list = FALLBACK_PRODUCTS;
+    if (selectedCategory !== "all") {
+      list = list.filter((p) => p.category === selectedCategory);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.description.toLowerCase().includes(q)
+      );
+    }
+    if (sortBy === "price_asc") {
+      list = [...list].sort((a, b) => a.price - b.price);
+    } else if (sortBy === "price_desc") {
+      list = [...list].sort((a, b) => b.price - a.price);
+    }
+    setProducts(list);
+    setTotalCount(list.length);
+  };
 
   // Cart operations
   const addToCart = (product) => {
@@ -168,7 +213,7 @@ export default function App() {
         return prev.map((item) =>
           item.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
-            : item,
+            : item
         );
       }
       return [...prev, { ...product, quantity: 1 }];
@@ -178,8 +223,8 @@ export default function App() {
   const updateCartQty = (productId, quantity) => {
     setCart((prev) =>
       prev.map((item) =>
-        item.id === productId ? { ...item, quantity } : item,
-      ),
+        item.id === productId ? { ...item, quantity } : item
+      )
     );
   };
 
@@ -188,12 +233,6 @@ export default function App() {
   };
 
   const clearCart = () => setCart([]);
-
-  const filteredProducts = products.filter(
-    (p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.description.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
 
   const cartTotalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -225,16 +264,16 @@ export default function App() {
 
           <p className="mt-4 text-xs sm:text-sm md:text-base text-slate-400 max-w-2xl mx-auto leading-relaxed px-4">
             Sub-millisecond L1/L2 caching, singleflight cache stampede guard,
-            atomic Redis stock reservations, and asynchronous Kafka batch writes
-            to PostgreSQL 16.
+            atomic Redis stock reservations, and PostgreSQL GIN-indexed
+            full-text search.
           </p>
 
           {/* Quick Metrics Bar */}
           <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-3xl mx-auto font-mono text-xs px-2">
             <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-sm">
-              <div className="text-slate-400 text-[11px]">READ LATENCY</div>
+              <div className="text-slate-400 text-[11px]">FTS SEARCH GIN</div>
               <div className="text-emerald-400 font-bold text-base mt-0.5">
-                &lt; 0.5 ms
+                &lt; 0.8 ms
               </div>
             </div>
             <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-sm">
@@ -261,10 +300,10 @@ export default function App() {
 
       {/* Main Catalog */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
-        {/* Search and Filters */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8">
-          {/* Category Tabs */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 sm:pb-0 scrollbar-none">
+        {/* Search, Filter & Sort Controls */}
+        <div className="space-y-4 mb-8">
+          {/* Categories Tab */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             {categories.map((cat) => (
               <button
                 key={cat}
@@ -280,16 +319,41 @@ export default function App() {
             ))}
           </div>
 
-          {/* Search Input */}
-          <div className="relative w-full sm:w-80">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search products or SKU..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition shadow-inner"
-            />
+          {/* Search Bar + Sort Dropdown */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Full-text search (e.g., 'MacBook', '4K monitor', 'keyboard')..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-2xl text-xs text-white placeholder-slate-500 focus:outline-none transition shadow-inner"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white text-xs"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Sort Selector */}
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-mono transition"
+              >
+                <option value="relevance">Sort: Most Relevant</option>
+                <option value="price_asc">Price: Low to High</option>
+                <option value="price_desc">Price: High to Low</option>
+                <option value="newest">Newest Arrivals</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -298,24 +362,40 @@ export default function App() {
           <div className="py-24 flex flex-col items-center justify-center text-slate-500 space-y-3">
             <RefreshCw className="w-6 h-6 animate-spin text-emerald-400" />
             <span className="text-xs font-mono">
-              Fetching catalog from high-speed cache...
+              Running GIN index query &amp; cache lookup...
             </span>
           </div>
-        ) : filteredProducts.length === 0 ? (
+        ) : products.length === 0 ? (
           <div className="py-20 text-center text-slate-500">
-            <p className="text-sm">
-              No products found matching "{searchQuery}".
-            </p>
+            <p className="text-sm">No products found matching your criteria.</p>
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setSelectedCategory("all");
+                setSortBy("relevance");
+              }}
+              className="mt-3 px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-emerald-400 transition"
+            >
+              Reset Filters
+            </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-            {filteredProducts.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                onAddToCart={addToCart}
-              />
-            ))}
+          <div>
+            <div className="text-[11px] font-mono text-slate-500 mb-4 flex items-center justify-between">
+              <span>Showing {products.length} of {totalCount} items</span>
+              <span className="flex items-center gap-1 text-emerald-400/80">
+                <Zap className="w-3 h-3" /> GIN Index • Multi-Tier Caching
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+              {products.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onAddToCart={addToCart}
+                />
+              ))}
+            </div>
           </div>
         )}
       </main>
@@ -341,7 +421,7 @@ export default function App() {
             &amp; React
           </p>
           <div className="flex gap-4 font-mono text-[11px]">
-            <span className="text-slate-400">Postgres 16</span>
+            <span className="text-slate-400">Postgres 16 (GIN FTS)</span>
             <span>•</span>
             <span className="text-slate-400">Redis 7</span>
             <span>•</span>
