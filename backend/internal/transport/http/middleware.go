@@ -10,6 +10,7 @@ import (
 
 	"ecommerce-backend/internal/repository/redis"
 	"ecommerce-backend/pkg/metrics"
+
 	"github.com/go-chi/chi/v5/middleware"
 )
 

@@ -10,6 +10,7 @@ import (
 	"ecommerce-backend/internal/repository/postgres"
 	"ecommerce-backend/internal/repository/redis"
 	"ecommerce-backend/pkg/metrics"
+
 	kafkaPkg "github.com/segmentio/kafka-go"
 )
 
@@ -62,11 +63,11 @@ func (c *Consumer) StartBatchWorker(ctx context.Context, batchSize int, flushTim
 			if c.redisClient != nil {
 				for _, event := range batch {
 					statusPayload, _ := json.Marshal(map[string]interface{}{
-						"order_id":   event.OrderID,
-						"status":     "COMPLETED",
-						"message":    "Order successfully persisted to PostgreSQL",
-						"timestamp":  time.Now().UTC(),
-						"step":       3,
+						"order_id":  event.OrderID,
+						"status":    "COMPLETED",
+						"message":   "Order successfully persisted to PostgreSQL",
+						"timestamp": time.Now().UTC(),
+						"step":      3,
 					})
 					_ = c.redisClient.Publish(flushCtx, fmt.Sprintf("order:%s:status", event.OrderID), string(statusPayload))
 				}

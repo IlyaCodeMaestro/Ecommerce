@@ -2,6 +2,7 @@ package http
 
 import (
 	"ecommerce-backend/internal/repository/redis"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

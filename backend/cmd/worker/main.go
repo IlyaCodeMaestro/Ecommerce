@@ -12,6 +12,7 @@ import (
 	"ecommerce-backend/internal/queue/kafka"
 	"ecommerce-backend/internal/repository/postgres"
 	"ecommerce-backend/internal/repository/redis"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 

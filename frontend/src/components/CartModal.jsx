@@ -1,8 +1,23 @@
-import React, { useState } from 'react';
-import { X, Trash2, ArrowRight, Zap, RefreshCw, AlertTriangle } from 'lucide-react';
-import { createOrder } from '../services/api';
+import React, { useState } from "react";
+import {
+  X,
+  Trash2,
+  ArrowRight,
+  Zap,
+  RefreshCw,
+  AlertTriangle,
+} from "lucide-react";
+import { createOrder } from "../services/api";
 
-export default function CartModal({ isOpen, onClose, cart, onUpdateQty, onRemove, onClear, onOrderPlaced }) {
+export default function CartModal({
+  isOpen,
+  onClose,
+  cart,
+  onUpdateQty,
+  onRemove,
+  onClear,
+  onOrderPlaced,
+}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -24,9 +39,11 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQty, onRemove
       }
     } catch (err) {
       if (err.status === 429) {
-        setError('🛑 Rate Limit Exceeded: High-concurrency protection active (max 40 orders/min per IP). Please wait a moment.');
+        setError(
+          "🛑 Rate Limit Exceeded: High-concurrency protection active (max 40 orders/min per IP). Please wait a moment.",
+        );
       } else {
-        setError(err.message || 'Order failed');
+        setError(err.message || "Order failed");
       }
     } finally {
       setLoading(false);
@@ -42,7 +59,9 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQty, onRemove
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
               <Zap className="w-4 h-4" />
             </div>
-            <h2 className="text-lg font-bold text-white tracking-tight">Shopping Bag</h2>
+            <h2 className="text-lg font-bold text-white tracking-tight">
+              Shopping Bag
+            </h2>
           </div>
           <button
             onClick={onClose}
@@ -66,8 +85,12 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQty, onRemove
               <div className="w-12 h-12 rounded-2xl bg-slate-800/50 flex items-center justify-center mx-auto mb-3 text-slate-600">
                 <Zap className="w-6 h-6" />
               </div>
-              <p className="text-sm font-medium text-slate-300">Your shopping bag is empty</p>
-              <p className="text-xs mt-1 text-slate-500">Explore the catalog and add products to test instant checkout.</p>
+              <p className="text-sm font-medium text-slate-300">
+                Your shopping bag is empty
+              </p>
+              <p className="text-xs mt-1 text-slate-500">
+                Explore the catalog and add products to test instant checkout.
+              </p>
             </div>
           ) : (
             <>
@@ -78,18 +101,26 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQty, onRemove
                     className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 transition hover:border-slate-700"
                   >
                     <div className="flex-1 mr-3 min-w-0">
-                      <h4 className="text-sm font-semibold text-white truncate">{item.name}</h4>
-                      <span className="text-xs text-emerald-400 font-mono">${item.price.toFixed(2)}</span>
+                      <h4 className="text-sm font-semibold text-white truncate">
+                        {item.name}
+                      </h4>
+                      <span className="text-xs text-emerald-400 font-mono">
+                        ${item.price.toFixed(2)}
+                      </span>
                     </div>
 
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => onUpdateQty(item.id, Math.max(1, item.quantity - 1))}
+                        onClick={() =>
+                          onUpdateQty(item.id, Math.max(1, item.quantity - 1))
+                        }
                         className="w-7 h-7 rounded-xl bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center text-xs transition"
                       >
                         -
                       </button>
-                      <span className="font-mono text-xs w-6 text-center text-white">{item.quantity}</span>
+                      <span className="font-mono text-xs w-6 text-center text-white">
+                        {item.quantity}
+                      </span>
                       <button
                         onClick={() => onUpdateQty(item.id, item.quantity + 1)}
                         className="w-7 h-7 rounded-xl bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center text-xs transition"
@@ -110,8 +141,12 @@ export default function CartModal({ isOpen, onClose, cart, onUpdateQty, onRemove
               {/* Total & Checkout */}
               <div className="mt-6 pt-4 border-t border-slate-800">
                 <div className="flex justify-between items-center mb-4">
-                  <span className="text-slate-400 text-xs uppercase font-mono tracking-wider">Subtotal</span>
-                  <span className="text-2xl font-black font-mono text-white">${total.toFixed(2)}</span>
+                  <span className="text-slate-400 text-xs uppercase font-mono tracking-wider">
+                    Subtotal
+                  </span>
+                  <span className="text-2xl font-black font-mono text-white">
+                    ${total.toFixed(2)}
+                  </span>
                 </div>
 
                 <button

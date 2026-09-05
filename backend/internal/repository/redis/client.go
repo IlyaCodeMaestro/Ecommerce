@@ -9,9 +9,9 @@ import (
 )
 
 type Client struct {
-	RDB           *redis.Client
-	reserveSHA    string
-	rateLimitSHA  string
+	RDB          *redis.Client
+	reserveSHA   string
+	rateLimitSHA string
 }
 
 // Lua script to atomically check and reserve stock without race conditions
