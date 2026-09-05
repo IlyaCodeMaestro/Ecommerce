@@ -7,6 +7,7 @@ type OrderStatus string
 const (
 	OrderStatusAccepted   OrderStatus = "ACCEPTED"
 	OrderStatusProcessing OrderStatus = "PROCESSING"
+	OrderStatusPaid       OrderStatus = "PAID"
 	OrderStatusCompleted  OrderStatus = "COMPLETED"
 	OrderStatusFailed     OrderStatus = "FAILED"
 )
@@ -30,8 +31,9 @@ type Order struct {
 }
 
 type CreateOrderRequest struct {
-	UserID string             `json:"user_id"`
-	Items  []OrderItemRequest `json:"items"`
+	UserID         string             `json:"user_id"`
+	Items          []OrderItemRequest `json:"items"`
+	IdempotencyKey string             `json:"idempotency_key,omitempty"`
 }
 
 type OrderItemRequest struct {
@@ -53,4 +55,47 @@ type OrderPlacedEvent struct {
 	TotalAmount float64     `json:"total_amount"`
 	Items       []OrderItem `json:"items"`
 	CreatedAt   time.Time   `json:"created_at"`
+}
+
+// OutboxEvent represents an atomic transaction event for Transactional Outbox Pattern
+type OutboxEvent struct {
+	ID            string     `json:"id"`
+	AggregateType string     `json:"aggregate_type"`
+	AggregateID   string     `json:"aggregate_id"`
+	EventType     string     `json:"event_type"`
+	Payload       []byte     `json:"payload"`
+	Status        string     `json:"status"`
+	RetryCount    int        `json:"retry_count"`
+	LastError     string     `json:"last_error,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	ProcessedAt   *time.Time `json:"processed_at,omitempty"`
+}
+
+type PaymentStatus string
+
+const (
+	PaymentStatusPending   PaymentStatus = "PENDING"
+	PaymentStatusSucceeded PaymentStatus = "SUCCEEDED"
+	PaymentStatusFailed    PaymentStatus = "FAILED"
+)
+
+type Payment struct {
+	ID             string        `json:"id"`
+	OrderID        string        `json:"order_id"`
+	Amount         float64       `json:"amount"`
+	Currency       string        `json:"currency"`
+	Status         PaymentStatus `json:"status"`
+	IdempotencyKey string        `json:"idempotency_key,omitempty"`
+	Provider       string        `json:"provider"`
+	Signature      string        `json:"signature,omitempty"`
+	CreatedAt      time.Time     `json:"created_at"`
+	UpdatedAt      time.Time     `json:"updated_at"`
+}
+
+type PaymentWebhookPayload struct {
+	Event     string  `json:"event"`
+	PaymentID string  `json:"payment_id"`
+	OrderID   string  `json:"order_id"`
+	Amount    float64 `json:"amount"`
+	Currency  string  `json:"currency"`
 }

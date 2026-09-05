@@ -117,3 +117,47 @@ func (r *OrderRepo) GetByID(ctx context.Context, id string) (*domain.Order, erro
 
 	return &o, nil
 }
+
+func (r *OrderRepo) UpdateStatus(ctx context.Context, id string, status domain.OrderStatus) error {
+	query := `UPDATE orders SET status = $2, updated_at = NOW() WHERE id = $1`
+	_, err := r.db.Pool.Exec(ctx, query, id, status)
+	return err
+}
+
+func (r *OrderRepo) SaveSingleWithOutbox(ctx context.Context, order domain.Order, outbox domain.OutboxEvent) error {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	orderQuery := `
+		INSERT INTO orders (id, user_id, total_amount, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (id) DO NOTHING
+	`
+	if _, err := tx.Exec(ctx, orderQuery, order.ID, order.UserID, order.TotalAmount, order.Status, order.CreatedAt, order.UpdatedAt); err != nil {
+		return fmt.Errorf("failed to insert order: %w", err)
+	}
+
+	for _, item := range order.Items {
+		itemQuery := `
+			INSERT INTO order_items (order_id, product_id, quantity, price)
+			VALUES ($1, $2, $3, $4)
+		`
+		if _, err := tx.Exec(ctx, itemQuery, order.ID, item.ProductID, item.Quantity, item.Price); err != nil {
+			return fmt.Errorf("failed to insert order item: %w", err)
+		}
+	}
+
+	outboxQuery := `
+		INSERT INTO outbox_events (aggregate_type, aggregate_id, event_type, payload, status, created_at)
+		VALUES ($1, $2, $3, $4, 'PENDING', NOW())
+	`
+	if _, err := tx.Exec(ctx, outboxQuery, outbox.AggregateType, outbox.AggregateID, outbox.EventType, outbox.Payload); err != nil {
+		return fmt.Errorf("failed to insert outbox event: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+

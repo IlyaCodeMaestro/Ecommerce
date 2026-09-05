@@ -29,9 +29,11 @@ export async function fetchCategories() {
   return res.json();
 }
 
-export async function createOrder(items, userId = 'user-frontend') {
+export async function createOrder(items, userId = 'user-frontend', customIdempotencyKey = null) {
+  const idempotencyKey = customIdempotencyKey || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idemp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
   const payload = {
     user_id: userId,
+    idempotency_key: idempotencyKey,
     items: items.map(item => ({
       product_id: item.id,
       quantity: item.quantity,
@@ -41,7 +43,10 @@ export async function createOrder(items, userId = 'user-frontend') {
   const startTime = performance.now();
   const res = await fetch(`${API_BASE_URL}/api/v1/orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+    },
     body: JSON.stringify(payload),
   });
   const latencyMs = Math.round(performance.now() - startTime);
@@ -54,7 +59,22 @@ export async function createOrder(items, userId = 'user-frontend') {
   }
 
   const data = await res.json();
-  return { ...data, latencyMs };
+  return { ...data, latencyMs, idempotencyKey };
+}
+
+export async function simulatePayment(orderId, amount = 0) {
+  const res = await fetch(`${API_BASE_URL}/api/v1/payments/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_id: orderId, amount }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Payment simulation failed' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+
+  return res.json();
 }
 
 export async function checkHealth() {

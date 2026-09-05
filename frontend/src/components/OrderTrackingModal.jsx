@@ -10,21 +10,25 @@ import {
   Copy,
   Check,
   ExternalLink,
+  CreditCard,
+  Lock,
+  Zap,
 } from "lucide-react";
-import { subscribeToOrderStatus } from "../services/api";
+import { subscribeToOrderStatus, simulatePayment } from "../services/api";
 
 export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [statusMessage, setStatusMessage] = useState(
-    "Dispatched to Kafka queue",
-  );
+  const [statusMessage, setStatusMessage] = useState("Dispatched to Kafka queue");
   const [events, setEvents] = useState([]);
   const [copied, setCopied] = useState(false);
+  const [simulatingPayment, setSimulatingPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
 
   useEffect(() => {
     if (!orderData || !isOpen) {
       setCurrentStep(1);
       setEvents([]);
+      setPaymentSuccess(false);
       return;
     }
 
@@ -53,13 +57,17 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
           setStatusMessage(data.message);
         }
 
+        if (data.status === "COMPLETED") {
+          setPaymentSuccess(true);
+        }
+
         setEvents((prev) => [
           ...prev,
           {
             step: data.step || 2,
             title:
               data.status === "COMPLETED"
-                ? "Committed to PostgreSQL"
+                ? "Payment Verified • Committed to DB"
                 : "Worker Batch Processing",
             detail: data.message || "Worker processing order batch",
             time: time,
@@ -111,23 +119,37 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const handleSimulatePayment = async () => {
+    setSimulatingPayment(true);
+    try {
+      await simulatePayment(orderData.order_id, 100);
+      setPaymentSuccess(true);
+      setCurrentStep(3);
+      setStatusMessage("Payment Verified via HMAC-SHA256 • Order Completed");
+    } catch (err) {
+      console.error("Payment simulation error:", err);
+    } finally {
+      setSimulatingPayment(false);
+    }
+  };
+
   const steps = [
     {
       id: 1,
-      title: "Kafka Queue",
-      desc: "Async Write-Behind (< 2ms)",
+      title: "Kafka & Outbox",
+      desc: "Idempotent Write (< 2ms)",
       icon: Layers,
     },
     {
       id: 2,
-      title: "Batch Worker",
-      desc: "Consumer Group Sync",
+      title: "Batch Relay",
+      desc: "Transactional Outbox Sync",
       icon: Cpu,
     },
     {
       id: 3,
       title: "PostgreSQL 16",
-      desc: "Persistent ACID Storage",
+      desc: "HMAC Paid & Finalized",
       icon: Database,
     },
   ];
@@ -156,7 +178,7 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
 
         {/* Content */}
         <div className="p-6">
-          {/* Order ID & Badge */}
+          {/* Order ID & Idempotency Key */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-950/70 border border-slate-800/80 mb-6">
             <div>
               <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
@@ -165,6 +187,12 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
               <span className="font-mono text-xs sm:text-sm font-semibold text-emerald-300 select-all break-all">
                 {orderData.order_id}
               </span>
+              {orderData.idempotencyKey && (
+                <div className="mt-1 flex items-center gap-1 text-[10px] font-mono text-slate-500">
+                  <Lock className="w-3 h-3 text-cyan-400" />
+                  <span>Idempotency-Key Active</span>
+                </div>
+              )}
             </div>
             <button
               onClick={handleCopy}
@@ -199,8 +227,8 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
             <div className="relative z-10 grid grid-cols-3 gap-2">
               {steps.map((step) => {
                 const Icon = step.icon;
-                const isCompleted = currentStep > step.id;
-                const isCurrent = currentStep === step.id;
+                const isCompleted = currentStep > step.id || (step.id === 3 && paymentSuccess);
+                const isCurrent = currentStep === step.id && !paymentSuccess;
 
                 return (
                   <div
@@ -249,7 +277,7 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
                 Live Status Message
               </span>
               <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-emerald-400 border border-slate-700">
-                {currentStep === 3
+                {paymentSuccess || currentStep === 3
                   ? "100% Finalized"
                   : currentStep === 2
                     ? "66% In Progress"
@@ -259,12 +287,35 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
             <p className="text-sm font-semibold text-white">{statusMessage}</p>
           </div>
 
+          {/* Simulate Payment Webhook Action */}
+          {!paymentSuccess && (
+            <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-left">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Transactional Outbox & HMAC Webhook</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Simulate gateway callback signed with SHA256 secret.
+                </p>
+              </div>
+              <button
+                onClick={handleSimulatePayment}
+                disabled={simulatingPayment}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-50 transition"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>{simulatingPayment ? "Verifying HMAC..." : "Simulate Payment Webhook"}</span>
+              </button>
+            </div>
+          )}
+
           {/* Real-Time Event Audit Log */}
           <div>
             <h5 className="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-2.5">
               Live Pipeline Transitions (SSE Stream)
             </h5>
-            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
               {events.map((ev, i) => (
                 <div
                   key={i}
@@ -292,7 +343,7 @@ export default function OrderTrackingModal({ isOpen, onClose, orderData }) {
             onClick={onClose}
             className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition shadow-lg shadow-emerald-600/20"
           >
-            {currentStep === 3
+            {paymentSuccess || currentStep === 3
               ? "Done & Back to Shopping"
               : "Keep Running in Background"}
           </button>

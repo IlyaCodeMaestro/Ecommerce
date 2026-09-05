@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -128,8 +129,17 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		req.UserID = "anon-user"
 	}
 
+	// Extract Idempotency-Key from HTTP header if not in body
+	if req.IdempotencyKey == "" {
+		req.IdempotencyKey = r.Header.Get("Idempotency-Key")
+	}
+
 	resp, err := h.orderService.CreateOrderAsync(r.Context(), req)
 	if err != nil {
+		if errors.Is(err, service.ErrOrderInProgress) {
+			respondError(w, http.StatusConflict, "order is currently being processed, please wait")
+			return
+		}
 		if errors.Is(err, service.ErrInsufficientStock) {
 			respondError(w, http.StatusConflict, "item is out of stock")
 			return
@@ -142,7 +152,7 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 202 Accepted: async order event published to Kafka
+	// 202 Accepted: async order event published to Kafka & persisted in Outbox
 	respondJSON(w, http.StatusAccepted, resp)
 }
 
@@ -239,4 +249,82 @@ func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+// PaymentWebhook handles incoming payment events from payment gateways (e.g., Stripe/ЮKassa)
+// with HMAC-SHA256 signature verification.
+func (h *Handler) PaymentWebhook(w http.ResponseWriter, r *http.Request) {
+	signature := r.Header.Get("X-Signature")
+	if signature == "" {
+		signature = r.Header.Get("Stripe-Signature")
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "failed to read body")
+		return
+	}
+	defer r.Body.Close()
+
+	var payload domain.PaymentWebhookPayload
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid json payload")
+		return
+	}
+
+	if err := h.orderService.ProcessPaymentWebhook(r.Context(), signature, bodyBytes, payload); err != nil {
+		if errors.Is(err, service.ErrInvalidSignature) {
+			respondError(w, http.StatusUnauthorized, "invalid webhook signature")
+			return
+		}
+		if errors.Is(err, service.ErrOrderNotFound) {
+			respondError(w, http.StatusNotFound, "order not found")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":   "success",
+		"received": true,
+		"order_id": payload.OrderID,
+	})
+}
+
+// SimulatePayment is a testing & demo endpoint that generates a valid HMAC signature
+// and processes a simulated payment webhook for the given order.
+func (h *Handler) SimulatePayment(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OrderID string  `json:"order_id"`
+		Amount  float64 `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	payload := domain.PaymentWebhookPayload{
+		Event:     "payment.succeeded",
+		PaymentID: fmt.Sprintf("pay_%d", time.Now().UnixNano()),
+		OrderID:   req.OrderID,
+		Amount:    req.Amount,
+		Currency:  "USD",
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+	validSig := h.orderService.GenerateWebhookSignature(payloadBytes)
+
+	if err := h.orderService.ProcessPaymentWebhook(r.Context(), validSig, payloadBytes, payload); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":     "PAID",
+		"order_id":   req.OrderID,
+		"payment_id": payload.PaymentID,
+		"signature":  validSig,
+		"message":    "Payment successfully verified and order completed via HMAC-SHA256",
+	})
 }

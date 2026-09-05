@@ -55,6 +55,21 @@ func (p *Producer) PublishOrder(ctx context.Context, event domain.OrderPlacedEve
 	return nil
 }
 
+func (p *Producer) PublishRaw(ctx context.Context, key string, payload []byte) error {
+	msg := kafka.Message{
+		Key:   []byte(key),
+		Value: payload,
+		Time:  time.Now(),
+	}
+
+	if err := p.writer.WriteMessages(ctx, msg); err != nil {
+		return fmt.Errorf("failed to write raw message to kafka: %w", err)
+	}
+
+	metrics.KafkaOrdersProducedTotal.Inc()
+	return nil
+}
+
 func (p *Producer) Close() error {
 	return p.writer.Close()
 }

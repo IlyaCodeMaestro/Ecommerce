@@ -34,6 +34,10 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 
 		r.Get("/orders/{id}", handler.GetOrderByID)
 		r.Get("/orders/{id}/stream", handler.StreamOrderStatus) // Real-time SSE stream
+
+		// Payments & Webhook endpoints
+		r.Post("/payments/webhook", handler.PaymentWebhook)
+		r.Post("/payments/simulate", handler.SimulatePayment)
 	})
 
 	return r

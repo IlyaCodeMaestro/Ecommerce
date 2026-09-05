@@ -54,11 +54,19 @@ func main() {
 	// 4. Repositories and Services
 	productRepo := postgres.NewProductRepo(db)
 	orderRepo := postgres.NewOrderRepo(db)
+	outboxRepo := postgres.NewOutboxRepo(db)
+	paymentRepo := postgres.NewPaymentRepo(db)
+
+	webhookSecret := getEnv("WEBHOOK_SECRET", "whsec_highload_ecommerce_2026_super_secret")
 
 	productService := service.NewProductService(productRepo, redisClient)
-	orderService := service.NewOrderService(orderRepo, productRepo, redisClient, kafkaProducer, productService)
+	orderService := service.NewOrderService(orderRepo, productRepo, outboxRepo, paymentRepo, redisClient, kafkaProducer, productService, webhookSecret)
 
-	// 5. HTTP Handler & Router
+	// 5. Transactional Outbox Background Relay
+	outboxRelay := service.NewOutboxRelay(outboxRepo, kafkaProducer, 100*time.Millisecond, 50)
+	go outboxRelay.Start(ctx)
+
+	// 6. HTTP Handler & Router
 	handler := transporthttp.NewHandler(productService, orderService, redisClient)
 	router := transporthttp.NewRouter(handler, redisClient)
 

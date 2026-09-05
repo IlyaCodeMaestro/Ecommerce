@@ -9,9 +9,10 @@ import (
 )
 
 type Client struct {
-	RDB          *redis.Client
-	reserveSHA   string
-	rateLimitSHA string
+	RDB            *redis.Client
+	reserveSHA     string
+	rateLimitSHA   string
+	idempotencySHA string
 }
 
 // Lua script to atomically check and reserve stock without race conditions
@@ -46,6 +47,21 @@ else
 end
 `
 
+// Lua script for atomic distributed idempotency key acquisition
+const idempotencyScript = `
+local key = KEYS[1]
+local inProgressTTL = tonumber(ARGV[1])
+local current = redis.call('get', key)
+if not current then
+    redis.call('set', key, 'IN_PROGRESS', 'ex', inProgressTTL)
+    return {1, 'NEW', ''}
+elseif current == 'IN_PROGRESS' then
+    return {0, 'IN_PROGRESS', ''}
+else
+    return {0, 'COMPLETED', current}
+end
+`
+
 func NewClient(addr string) (*Client, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:         addr,
@@ -76,10 +92,16 @@ func NewClient(addr string) (*Client, error) {
 		return nil, fmt.Errorf("failed to load rate limit lua script: %w", err)
 	}
 
+	shaIdempotency, err := rdb.ScriptLoad(ctx, idempotencyScript).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load idempotency lua script: %w", err)
+	}
+
 	return &Client{
-		RDB:          rdb,
-		reserveSHA:   shaReserve,
-		rateLimitSHA: shaRate,
+		RDB:            rdb,
+		reserveSHA:     shaReserve,
+		rateLimitSHA:   shaRate,
+		idempotencySHA: shaIdempotency,
 	}, nil
 }
 
@@ -127,6 +149,46 @@ func (c *Client) AllowRequest(ctx context.Context, key string, limit int, window
 		return true, nil
 	}
 	return res == 1, nil
+}
+
+// AcquireIdempotency tries to atomically acquire an idempotency key.
+// Returns (acquired bool, state string, cachedResponse string, err error).
+// State can be "NEW", "IN_PROGRESS", or "COMPLETED".
+func (c *Client) AcquireIdempotency(ctx context.Context, key string, inProgressTTL time.Duration) (bool, string, string, error) {
+	redisKey := fmt.Sprintf("idempotency:%s", key)
+	ttlSec := int(inProgressTTL.Seconds())
+	if ttlSec <= 0 {
+		ttlSec = 120
+	}
+
+	val, err := c.RDB.EvalSha(ctx, c.idempotencySHA, []string{redisKey}, ttlSec).Result()
+	if err != nil {
+		val, err = c.RDB.Eval(ctx, idempotencyScript, []string{redisKey}, ttlSec).Result()
+		if err != nil {
+			return false, "", "", err
+		}
+	}
+
+	resSlice, ok := val.([]interface{})
+	if !ok || len(resSlice) < 3 {
+		return false, "", "", fmt.Errorf("unexpected lua result format: %v", val)
+	}
+
+	acquiredInt, _ := resSlice[0].(int64)
+	state, _ := resSlice[1].(string)
+	cachedResp, _ := resSlice[2].(string)
+
+	return acquiredInt == 1, state, cachedResp, nil
+}
+
+func (c *Client) SaveIdempotency(ctx context.Context, key string, responseJSON string, ttl time.Duration) error {
+	redisKey := fmt.Sprintf("idempotency:%s", key)
+	return c.RDB.Set(ctx, redisKey, responseJSON, ttl).Err()
+}
+
+func (c *Client) ReleaseIdempotency(ctx context.Context, key string) error {
+	redisKey := fmt.Sprintf("idempotency:%s", key)
+	return c.RDB.Del(ctx, redisKey).Err()
 }
 
 // Publish broadcasts event to a Redis Pub/Sub channel
