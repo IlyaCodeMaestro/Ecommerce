@@ -268,6 +268,147 @@ func (h *Handler) GetOrderByID(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, order)
 }
 
+// CancelOrder allows a customer or admin to cancel an order and trigger compensating restock
+func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
+	orderID := chi.URLParam(r, "id")
+	var req domain.CancelOrderRequest
+	_ = json.NewDecoder(r.Body).Decode(&req) // Optional reason
+
+	claims := GetUserClaims(r.Context())
+	userID := ""
+	userRole := ""
+	if claims != nil {
+		userID = claims.UserID
+		userRole = claims.Role
+	}
+
+	order, err := h.orderService.CancelOrder(r.Context(), orderID, userID, userRole, req.Reason)
+	if err != nil {
+		if errors.Is(err, service.ErrOrderNotFound) {
+			respondError(w, http.StatusNotFound, "order not found")
+			return
+		}
+		if errors.Is(err, service.ErrUnauthorized) {
+			respondError(w, http.StatusForbidden, "you are not authorized to cancel this order")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidStateTransition) {
+			respondError(w, http.StatusConflict, err.Error())
+			return
+		}
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "cancelled",
+		"message": "Order successfully cancelled and inventory restocked",
+		"order":   order,
+	})
+}
+
+// ListUserOrders returns order history for authenticated customer
+func (h *Handler) ListUserOrders(w http.ResponseWriter, r *http.Request) {
+	claims := GetUserClaims(r.Context())
+	if claims == nil || claims.UserID == "" {
+		respondError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+
+	orders, total, err := h.orderService.ListUserOrders(r.Context(), claims.UserID, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to query order history")
+		return
+	}
+
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	respondJSON(w, http.StatusOK, domain.OrderListResponse{
+		Orders: orders,
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+// AdminListOrders returns all store orders for administrators with optional status filter
+func (h *Handler) AdminListOrders(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	statusStr := q.Get("status")
+
+	var statusFilter *domain.OrderStatus
+	if statusStr != "" {
+		s := domain.OrderStatus(statusStr)
+		statusFilter = &s
+	}
+
+	orders, total, err := h.orderService.ListAllOrders(r.Context(), statusFilter, limit, offset)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to query admin orders")
+		return
+	}
+
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	respondJSON(w, http.StatusOK, domain.OrderListResponse{
+		Orders: orders,
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+// AdminUpdateOrderStatus advances order lifecycle state with FSM validation
+func (h *Handler) AdminUpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
+	orderID := chi.URLParam(r, "id")
+	var req domain.UpdateOrderStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Status == "" {
+		respondError(w, http.StatusBadRequest, "status is required")
+		return
+	}
+
+	order, err := h.orderService.UpdateOrderStatus(r.Context(), orderID, req.Status)
+	if err != nil {
+		if errors.Is(err, service.ErrOrderNotFound) {
+			respondError(w, http.StatusNotFound, "order not found")
+			return
+		}
+		if errors.Is(err, service.ErrInvalidStateTransition) {
+			respondError(w, http.StatusConflict, err.Error())
+			return
+		}
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  order.Status,
+		"message": "Order status updated successfully",
+		"order":   order,
+	})
+}
+
 // StreamOrderStatus streams real-time Server-Sent Events (SSE) for order lifecycle transitions
 func (h *Handler) StreamOrderStatus(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)

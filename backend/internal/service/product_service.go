@@ -160,3 +160,12 @@ func (s *ProductService) GetCategories(ctx context.Context) ([]string, error) {
 	s.l1Cache.Set(key, categories, 1*time.Hour)
 	return categories, nil
 }
+
+// InvalidateProductCache purges a product from both L1 memory and L2 Redis cache
+func (s *ProductService) InvalidateProductCache(ctx context.Context, id int64) {
+	key := fmt.Sprintf("product:%d", id)
+	s.l1Cache.Delete(key)
+	if s.redisClient != nil && s.redisClient.RDB != nil {
+		_ = s.redisClient.RDB.Del(ctx, key).Err()
+	}
+}

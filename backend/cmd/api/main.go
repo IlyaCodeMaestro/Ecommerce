@@ -66,9 +66,12 @@ func main() {
 	authService := service.NewAuthService(userRepo, redisClient, jwtSecret)
 	cartService := service.NewCartService(redisClient, productRepo)
 
-	// 5. Transactional Outbox Background Relay
+	// 5. Transactional Outbox Background Relay & Order Timeout Sweeper Saga
 	outboxRelay := service.NewOutboxRelay(outboxRepo, kafkaProducer, 100*time.Millisecond, 50)
 	go outboxRelay.Start(ctx)
+
+	orderSweeper := service.NewOrderTimeoutSweeper(orderRepo, orderService, 15*time.Minute, 30*time.Second)
+	go orderSweeper.Start(ctx)
 
 	// 6. HTTP Handler & Router
 	handler := transporthttp.NewHandler(productService, orderService, authService, cartService, redisClient, db)

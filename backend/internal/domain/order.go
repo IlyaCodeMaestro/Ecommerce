@@ -5,12 +5,41 @@ import "time"
 type OrderStatus string
 
 const (
+	OrderStatusPending    OrderStatus = "PENDING"
 	OrderStatusAccepted   OrderStatus = "ACCEPTED"
-	OrderStatusProcessing OrderStatus = "PROCESSING"
 	OrderStatusPaid       OrderStatus = "PAID"
-	OrderStatusCompleted  OrderStatus = "COMPLETED"
+	OrderStatusProcessing OrderStatus = "PROCESSING"
+	OrderStatusShipped    OrderStatus = "SHIPPED"
+	OrderStatusDelivered  OrderStatus = "DELIVERED"
+	OrderStatusCompleted  OrderStatus = "COMPLETED" // Compatible alias with DELIVERED
+	OrderStatusCancelled  OrderStatus = "CANCELLED"
+	OrderStatusRefunded   OrderStatus = "REFUNDED"
 	OrderStatusFailed     OrderStatus = "FAILED"
 )
+
+// CanTransitionTo validates state progression according to e-commerce FSM rules
+func (current OrderStatus) CanTransitionTo(next OrderStatus) bool {
+	if current == next {
+		return true // Idempotent no-op
+	}
+
+	switch current {
+	case OrderStatusAccepted, OrderStatusPending:
+		return next == OrderStatusPaid || next == OrderStatusCancelled || next == OrderStatusFailed
+	case OrderStatusPaid:
+		return next == OrderStatusProcessing || next == OrderStatusCancelled || next == OrderStatusRefunded
+	case OrderStatusProcessing:
+		return next == OrderStatusShipped || next == OrderStatusCancelled || next == OrderStatusRefunded
+	case OrderStatusShipped:
+		return next == OrderStatusDelivered || next == OrderStatusCompleted || next == OrderStatusRefunded
+	case OrderStatusDelivered, OrderStatusCompleted:
+		return next == OrderStatusRefunded
+	case OrderStatusCancelled, OrderStatusRefunded, OrderStatusFailed:
+		return false
+	default:
+		return false
+	}
+}
 
 type OrderItem struct {
 	ID        int64   `json:"id,omitempty"`
@@ -99,3 +128,20 @@ type PaymentWebhookPayload struct {
 	Amount    float64 `json:"amount"`
 	Currency  string  `json:"currency"`
 }
+
+type CancelOrderRequest struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type UpdateOrderStatusRequest struct {
+	Status OrderStatus `json:"status"`
+	Reason string      `json:"reason,omitempty"`
+}
+
+type OrderListResponse struct {
+	Orders []Order `json:"orders"`
+	Total  int     `json:"total"`
+	Limit  int     `json:"limit"`
+	Offset int     `json:"offset"`
+}
+

@@ -18,12 +18,14 @@ import (
 )
 
 var (
-	ErrProductNotFound   = errors.New("product not found")
-	ErrInsufficientStock = errors.New("insufficient stock")
-	ErrInvalidRequest    = errors.New("invalid order request: at least one item required")
-	ErrOrderInProgress   = errors.New("order is currently being processed")
-	ErrInvalidSignature  = errors.New("invalid webhook signature")
-	ErrOrderNotFound     = errors.New("order not found")
+	ErrProductNotFound        = errors.New("product not found")
+	ErrInsufficientStock      = errors.New("insufficient stock")
+	ErrInvalidRequest         = errors.New("invalid order request: at least one item required")
+	ErrOrderInProgress        = errors.New("order is currently being processed")
+	ErrInvalidSignature       = errors.New("invalid webhook signature")
+	ErrOrderNotFound          = errors.New("order not found")
+	ErrInvalidStateTransition = errors.New("invalid order state transition")
+	ErrUnauthorized           = errors.New("unauthorized to manage this order")
 )
 
 type OrderService struct {
@@ -277,3 +279,140 @@ func (s *OrderService) GenerateWebhookSignature(payload []byte) string {
 	mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
 }
+
+// CancelOrder cancels an order and executes compensating stock restock across Postgres & Redis
+func (s *OrderService) CancelOrder(ctx context.Context, orderID string, requestingUserID string, userRole string, reason string) (*domain.Order, error) {
+	if orderID == "" {
+		return nil, errors.New("order_id is required")
+	}
+
+	order, err := s.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch order: %w", err)
+	}
+	if order == nil {
+		return nil, ErrOrderNotFound
+	}
+
+	// Permission check: customer can only cancel their own order, admin can cancel any
+	if requestingUserID != "" && userRole != domain.RoleAdmin && order.UserID != requestingUserID {
+		return nil, ErrUnauthorized
+	}
+
+	// State machine check
+	if !order.Status.CanTransitionTo(domain.OrderStatusCancelled) {
+		return nil, fmt.Errorf("%w: cannot transition from %s to %s", ErrInvalidStateTransition, order.Status, domain.OrderStatusCancelled)
+	}
+
+	now := time.Now().UTC()
+	cancelPayload, _ := json.Marshal(map[string]interface{}{
+		"order_id":     orderID,
+		"user_id":      order.UserID,
+		"reason":       reason,
+		"items":        order.Items,
+		"cancelled_at": now,
+	})
+
+	outboxEvent := domain.OutboxEvent{
+		AggregateType: "order",
+		AggregateID:   orderID,
+		EventType:     "OrderCancelled",
+		Payload:       cancelPayload,
+		Status:        "PENDING",
+		CreatedAt:     now,
+	}
+
+	// 1. Compensating Transaction: Atomic update to CANCELLED and stock restore in PostgreSQL
+	if err := s.orderRepo.CancelAndRestock(ctx, orderID, order.Items, outboxEvent); err != nil {
+		return nil, fmt.Errorf("failed to cancel order and restock in postgres: %w", err)
+	}
+
+	// 2. Compensating Stock Restoration in Redis RAM + Cache Invalidation
+	for _, item := range order.Items {
+		if s.redisClient != nil && s.redisClient.RDB != nil {
+			stockKey := fmt.Sprintf("product:stock:%d", item.ProductID)
+			_ = s.redisClient.RDB.IncrBy(ctx, stockKey, int64(item.Quantity)).Err()
+		}
+		if s.productService != nil {
+			s.productService.InvalidateProductCache(ctx, item.ProductID)
+		}
+	}
+
+	// 3. Real-time SSE notification via Redis Pub/Sub
+	if s.redisClient != nil {
+		channelName := fmt.Sprintf("order:%s:status", orderID)
+		sseMsg := fmt.Sprintf(`{"order_id":"%s","status":"CANCELLED","step":4,"message":"Order cancelled • Inventory restocked","timestamp":"%s"}`,
+			orderID, now.Format(time.RFC3339),
+		)
+		_ = s.redisClient.Publish(ctx, channelName, sseMsg)
+	}
+
+	order.Status = domain.OrderStatusCancelled
+	order.UpdatedAt = now
+	return order, nil
+}
+
+// UpdateOrderStatus advances order status with FSM validation
+func (s *OrderService) UpdateOrderStatus(ctx context.Context, orderID string, newStatus domain.OrderStatus) (*domain.Order, error) {
+	if orderID == "" {
+		return nil, errors.New("order_id is required")
+	}
+
+	// If transitioning to CANCELLED, delegate to CancelOrder for compensating restock
+	if newStatus == domain.OrderStatusCancelled {
+		return s.CancelOrder(ctx, orderID, "", domain.RoleAdmin, "Admin status change to CANCELLED")
+	}
+
+	order, err := s.orderRepo.GetByID(ctx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch order: %w", err)
+	}
+	if order == nil {
+		return nil, ErrOrderNotFound
+	}
+
+	if !order.Status.CanTransitionTo(newStatus) {
+		return nil, fmt.Errorf("%w: cannot transition from %s to %s", ErrInvalidStateTransition, order.Status, newStatus)
+	}
+
+	if err := s.orderRepo.UpdateStatus(ctx, orderID, newStatus); err != nil {
+		return nil, fmt.Errorf("failed to update order status: %w", err)
+	}
+
+	now := time.Now().UTC()
+	// Real-time SSE notification via Redis Pub/Sub
+	if s.redisClient != nil {
+		channelName := fmt.Sprintf("order:%s:status", orderID)
+		sseMsg := fmt.Sprintf(`{"order_id":"%s","status":"%s","message":"Order status updated to %s","timestamp":"%s"}`,
+			orderID, newStatus, newStatus, now.Format(time.RFC3339),
+		)
+		_ = s.redisClient.Publish(ctx, channelName, sseMsg)
+	}
+
+	order.Status = newStatus
+	order.UpdatedAt = now
+	return order, nil
+}
+
+// ListUserOrders returns paginated orders for a customer
+func (s *OrderService) ListUserOrders(ctx context.Context, userID string, limit, offset int) ([]domain.Order, int, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.orderRepo.ListByUserID(ctx, userID, limit, offset)
+}
+
+// ListAllOrders returns paginated orders for administration
+func (s *OrderService) ListAllOrders(ctx context.Context, status *domain.OrderStatus, limit, offset int) ([]domain.Order, int, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.orderRepo.ListAll(ctx, status, limit, offset)
+}
+

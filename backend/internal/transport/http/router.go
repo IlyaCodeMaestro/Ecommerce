@@ -55,11 +55,13 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 			cartRouter.Post("/merge", handler.MergeCart)
 		})
 
-		// Orders endpoints with rate limiting & optional JWT context
+		// Orders endpoints with rate limiting & optional/authenticated JWT context
 		r.Group(func(orderRouter chi.Router) {
 			orderRouter.Use(RateLimitMiddleware(redisClient, 40, 60)) // 40 orders/min per IP
 			orderRouter.Use(OptionalAuthMiddleware(handler.authService))
 			orderRouter.Post("/orders", handler.CreateOrder)
+			orderRouter.Get("/orders", handler.ListUserOrders)
+			orderRouter.Put("/orders/{id}/cancel", handler.CancelOrder)
 		})
 
 		r.Get("/orders/{id}", handler.GetOrderByID)
@@ -74,6 +76,8 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 			adminRouter.Use(AuthMiddleware(handler.authService))
 			adminRouter.Use(RequireRole(domain.RoleAdmin))
 			adminRouter.Get("/admin/stats", handler.GetAdminStats)
+			adminRouter.Get("/admin/orders", handler.AdminListOrders)
+			adminRouter.Put("/admin/orders/{id}/status", handler.AdminUpdateOrderStatus)
 		})
 
 		// Internal Alertmanager Webhook receivers
