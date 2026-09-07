@@ -2,8 +2,12 @@ package redis
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+
+	"ecommerce-backend/internal/domain"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -258,6 +262,48 @@ func (c *Client) Publish(ctx context.Context, channel string, message interface{
 // Subscribe returns a PubSub subscription to specified channels
 func (c *Client) Subscribe(ctx context.Context, channels ...string) *redis.PubSub {
 	return c.RDB.Subscribe(ctx, channels...)
+}
+
+// GetCart fetches a cart by its key (e.g. cart:user:123 or cart:guest:session-abc).
+// Returns nil, nil if the cart key does not exist.
+func (c *Client) GetCart(ctx context.Context, cartKey string) (*domain.Cart, error) {
+	key := fmt.Sprintf("cart:%s", cartKey)
+	val, err := c.RDB.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var cart domain.Cart
+	if err := json.Unmarshal([]byte(val), &cart); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cart: %w", err)
+	}
+	return &cart, nil
+}
+
+// SaveCart persists the cart with specified TTL (e.g., 30 days)
+func (c *Client) SaveCart(ctx context.Context, cart *domain.Cart, ttl time.Duration) error {
+	if cart == nil {
+		return nil
+	}
+	key := fmt.Sprintf("cart:%s", cart.CartKey)
+	data, err := json.Marshal(cart)
+	if err != nil {
+		return fmt.Errorf("failed to marshal cart: %w", err)
+	}
+
+	if ttl <= 0 {
+		ttl = 30 * 24 * time.Hour
+	}
+	return c.RDB.Set(ctx, key, data, ttl).Err()
+}
+
+// DeleteCart removes the cart from Redis
+func (c *Client) DeleteCart(ctx context.Context, cartKey string) error {
+	key := fmt.Sprintf("cart:%s", cartKey)
+	return c.RDB.Del(ctx, key).Err()
 }
 
 func (c *Client) Close() error {

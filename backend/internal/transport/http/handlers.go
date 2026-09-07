@@ -20,6 +20,7 @@ type Handler struct {
 	productService *service.ProductService
 	orderService   *service.OrderService
 	authService    *service.AuthService
+	cartService    *service.CartService
 	redisClient    *redis.Client
 }
 
@@ -27,12 +28,14 @@ func NewHandler(
 	productService *service.ProductService,
 	orderService *service.OrderService,
 	authService *service.AuthService,
+	cartService *service.CartService,
 	redisClient *redis.Client,
 ) *Handler {
 	return &Handler{
 		productService: productService,
 		orderService:   orderService,
 		authService:    authService,
+		cartService:    cartService,
 		redisClient:    redisClient,
 	}
 }

@@ -64,13 +64,14 @@ func main() {
 	productService := service.NewProductService(productRepo, redisClient)
 	orderService := service.NewOrderService(orderRepo, productRepo, outboxRepo, paymentRepo, redisClient, kafkaProducer, productService, webhookSecret)
 	authService := service.NewAuthService(userRepo, redisClient, jwtSecret)
+	cartService := service.NewCartService(redisClient, productRepo)
 
 	// 5. Transactional Outbox Background Relay
 	outboxRelay := service.NewOutboxRelay(outboxRepo, kafkaProducer, 100*time.Millisecond, 50)
 	go outboxRelay.Start(ctx)
 
 	// 6. HTTP Handler & Router
-	handler := transporthttp.NewHandler(productService, orderService, authService, redisClient)
+	handler := transporthttp.NewHandler(productService, orderService, authService, cartService, redisClient)
 	router := transporthttp.NewRouter(handler, redisClient)
 
 	// 6. Tuned HTTP Server for maximum throughput

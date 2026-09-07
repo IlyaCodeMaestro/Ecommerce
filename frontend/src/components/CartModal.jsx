@@ -32,7 +32,7 @@ export default function CartModal({
     setError(null);
 
     try {
-      const userId = currentUser ? currentUser.id : 'guest-user';
+      const userId = currentUser ? currentUser.id : "guest-user";
       const res = await createOrder(cart, userId);
       onClear();
       onClose();
@@ -64,6 +64,19 @@ export default function CartModal({
             <h2 className="text-lg font-bold text-white tracking-tight">
               Shopping Bag
             </h2>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-lg font-bold text-white tracking-tight">
+                  Shopping Bag
+                </h2>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Redis L2
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                In-memory persistence • 30-day session TTL
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -86,13 +99,16 @@ export default function CartModal({
             <div className="mb-4 px-3.5 py-2 rounded-2xl bg-emerald-950/30 border border-emerald-500/20 text-xs flex items-center justify-between">
               <span className="text-slate-400">Checkout As:</span>
               <span className="font-mono text-emerald-400 font-semibold truncate max-w-[220px]">
-                {currentUser.first_name || currentUser.email} ({currentUser.role})
+                {currentUser.first_name || currentUser.email} (
+                {currentUser.role})
               </span>
             </div>
           ) : (
             <div className="mb-4 px-3.5 py-2 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs flex items-center justify-between">
               <span className="text-slate-400">Checkout Mode:</span>
-              <span className="font-mono text-slate-400">Guest (Sign in optional)</span>
+              <span className="font-mono text-slate-400">
+                Guest (Sign in optional)
+              </span>
             </div>
           )}
 

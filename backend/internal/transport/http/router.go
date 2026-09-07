@@ -43,6 +43,17 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 		r.Get("/products/{id}", handler.GetProductByID)
 
 		// Orders endpoints with rate limiting on order creation
+		// Cart endpoints (Supports both Guest Sessions and Authenticated Users)
+		r.Route("/cart", func(cartRouter chi.Router) {
+			cartRouter.Use(OptionalAuthMiddleware(handler.authService))
+			cartRouter.Get("/", handler.GetCart)
+			cartRouter.Post("/items", handler.AddCartItem)
+			cartRouter.Put("/items/{id}", handler.UpdateCartItem)
+			cartRouter.Delete("/items/{id}", handler.RemoveCartItem)
+			cartRouter.Delete("/", handler.ClearCart)
+			cartRouter.Post("/merge", handler.MergeCart)
+		})
+
 		// Orders endpoints with rate limiting & optional JWT context
 		r.Group(func(orderRouter chi.Router) {
 			orderRouter.Use(RateLimitMiddleware(redisClient, 40, 60)) // 40 orders/min per IP

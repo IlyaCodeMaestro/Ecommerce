@@ -1,5 +1,14 @@
-import React from 'react';
-import { ShoppingBag, Activity, Zap, Server, BarChart3, User, LogOut, Shield } from 'lucide-react';
+import React from "react";
+import {
+  ShoppingBag,
+  Activity,
+  Zap,
+  Server,
+  BarChart3,
+  User,
+  LogOut,
+  Shield,
+} from "lucide-react";
 
 export default function Header({
   cartCount,
@@ -21,12 +30,16 @@ export default function Header({
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-lg tracking-tight text-white">HyperScale</span>
+              <span className="font-bold text-lg tracking-tight text-white">
+                HyperScale
+              </span>
               <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-mono border border-emerald-500/20">
                 10k RPS
               </span>
             </div>
-            <p className="text-xs text-slate-400">Go • Redis • Kafka • Postgres</p>
+            <p className="text-xs text-slate-400">
+              Go • Redis • Kafka • Postgres
+            </p>
           </div>
         </div>
 
@@ -36,11 +49,13 @@ export default function Header({
           <div className="hidden lg:flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/60 text-xs">
             <span
               className={`w-2 h-2 rounded-full ${
-                backendStatus ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
+                backendStatus ? "bg-emerald-400 animate-pulse" : "bg-rose-500"
               }`}
             />
             <span className="text-slate-300 font-mono">
-              {backendStatus ? `API Live (${pingMs}ms)` : 'Offline / Connecting'}
+              {backendStatus
+                ? `API Live (${pingMs}ms)`
+                : "Offline / Connecting"}
             </span>
           </div>
 
@@ -59,15 +74,19 @@ export default function Header({
             <div className="flex items-center space-x-2 pl-2 border-l border-slate-800">
               <div className="flex items-center space-x-2 px-2.5 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700 text-xs">
                 <div className="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-[10px]">
-                  {currentUser.first_name ? currentUser.first_name[0].toUpperCase() : 'U'}
+                  {currentUser.first_name
+                    ? currentUser.first_name[0].toUpperCase()
+                    : "U"}
                 </div>
                 <div className="hidden sm:block text-left">
                   <span className="font-semibold text-white block leading-tight">
-                    {currentUser.first_name || currentUser.email.split('@')[0]}
+                    {currentUser.first_name || currentUser.email.split("@")[0]}
                   </span>
                   <span
                     className={`text-[9px] font-mono uppercase tracking-wider block ${
-                      currentUser.role === 'admin' ? 'text-cyan-400 font-bold' : 'text-slate-400'
+                      currentUser.role === "admin"
+                        ? "text-cyan-400 font-bold"
+                        : "text-slate-400"
                     }`}
                   >
                     {currentUser.role}

@@ -12,6 +12,12 @@ import {
   fetchCurrentUser,
   logoutUser,
   getStoredUser,
+  fetchCart,
+  addCartItemApi,
+  updateCartItemApi,
+  removeCartItemApi,
+  clearCartApi,
+  mergeGuestCartApi,
 } from "./services/api";
 import {
   Search,
@@ -138,6 +144,26 @@ export default function App() {
   const [authOpen, setAuthOpen] = useState(false);
 
   // Check current user session on load
+  const syncCartFromBackend = async () => {
+    try {
+      const cartData = await fetchCart();
+      if (cartData && Array.isArray(cartData.items) && cartData.items.length > 0) {
+        setCart(
+          cartData.items.map((it) => ({
+            id: it.product_id,
+            sku: it.sku,
+            name: it.name,
+            price: it.price,
+            quantity: it.quantity,
+          })),
+        );
+      }
+    } catch (err) {
+      console.warn("Failed to sync cart from Redis:", err);
+    }
+  };
+
+  // Check current user session and sync cart on load
   useEffect(() => {
     fetchCurrentUser()
       .then((user) => {
@@ -146,11 +172,38 @@ export default function App() {
         }
       })
       .catch(() => {});
+
+    syncCartFromBackend();
   }, []);
+
+  const handleAuthSuccess = async (user) => {
+    setCurrentUser(user);
+    if (cart.length > 0) {
+      try {
+        const merged = await mergeGuestCartApi(cart);
+        if (merged && Array.isArray(merged.items)) {
+          setCart(
+            merged.items.map((it) => ({
+              id: it.product_id,
+              sku: it.sku,
+              name: it.name,
+              price: it.price,
+              quantity: it.quantity,
+            })),
+          );
+        }
+      } catch (err) {
+        console.warn("Failed to merge cart on login:", err);
+      }
+    } else {
+      await syncCartFromBackend();
+    }
+  };
 
   const handleLogout = async () => {
     await logoutUser();
     setCurrentUser(null);
+    await syncCartFromBackend();
   };
 
   // Health check polling
@@ -194,7 +247,9 @@ export default function App() {
 
           if (data && data.products) {
             setProducts(data.products);
-            setTotalCount(data.total !== undefined ? data.total : data.products.length);
+            setTotalCount(
+              data.total !== undefined ? data.total : data.products.length,
+            );
           } else {
             filterFallback();
           }
@@ -221,7 +276,7 @@ export default function App() {
       list = list.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q)
+          p.description.toLowerCase().includes(q),
       );
     }
     if (sortBy === "price_asc") {
@@ -234,6 +289,7 @@ export default function App() {
   };
 
   // Cart operations
+  // Cart operations with Redis sync
   const addToCart = (product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
@@ -241,26 +297,44 @@ export default function App() {
         return prev.map((item) =>
           item.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
-            : item
+            : item,
         );
       }
       return [...prev, { ...product, quantity: 1 }];
     });
+    addCartItemApi(product.id, 1).catch((e) =>
+      console.warn("Redis add cart error:", e),
+    );
   };
 
   const updateCartQty = (productId, quantity) => {
     setCart((prev) =>
       prev.map((item) =>
-        item.id === productId ? { ...item, quantity } : item
-      )
+        item.id === productId ? { ...item, quantity } : item,
+      ),
     );
+    if (quantity <= 0) {
+      removeCartItemApi(productId).catch((e) =>
+        console.warn("Redis remove cart error:", e),
+      );
+    } else {
+      updateCartItemApi(productId, quantity).catch((e) =>
+        console.warn("Redis update cart error:", e),
+      );
+    }
   };
 
   const removeFromCart = (productId) => {
     setCart((prev) => prev.filter((item) => item.id !== productId));
+    removeCartItemApi(productId).catch((e) =>
+      console.warn("Redis remove cart error:", e),
+    );
   };
 
-  const clearCart = () => setCart([]);
+  const clearCart = () => {
+    setCart([]);
+    clearCartApi().catch((e) => console.warn("Redis clear cart error:", e));
+  };
 
   const cartTotalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -413,7 +487,9 @@ export default function App() {
         ) : (
           <div>
             <div className="text-[11px] font-mono text-slate-500 mb-4 flex items-center justify-between">
-              <span>Showing {products.length} of {totalCount} items</span>
+              <span>
+                Showing {products.length} of {totalCount} items
+              </span>
               <span className="flex items-center gap-1 text-emerald-400/80">
                 <Zap className="w-3 h-3" /> GIN Index • Multi-Tier Caching
               </span>
@@ -479,7 +555,7 @@ export default function App() {
       <AuthModal
         isOpen={authOpen}
         onClose={() => setAuthOpen(false)}
-        onAuthSuccess={(user) => setCurrentUser(user)}
+        onAuthSuccess={handleAuthSuccess}
       />
 
       {/* Real-Time Order Stream (SSE) Modal */}

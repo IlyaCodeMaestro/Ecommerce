@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   X,
   Mail,
@@ -10,8 +10,8 @@ import {
   CheckCircle2,
   Sparkles,
   Zap,
-} from 'lucide-react';
-import { loginUser, registerUser } from '../services/api';
+} from "lucide-react";
+import { loginUser, registerUser } from "../services/api";
 
 export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -20,10 +20,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
   const [successMsg, setSuccessMsg] = useState(null);
 
   // Form fields
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
 
   if (!isOpen) return null;
 
@@ -36,7 +36,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
     try {
       if (isLogin) {
         const resp = await loginUser(email, password);
-        setSuccessMsg(`Welcome back, ${resp.user.first_name || resp.user.email}!`);
+        setSuccessMsg(
+          `Welcome back, ${resp.user.first_name || resp.user.email}!`,
+        );
         setTimeout(() => {
           onAuthSuccess(resp.user);
           onClose();
@@ -48,14 +50,14 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
           firstName,
           lastName,
         });
-        setSuccessMsg('Account created successfully! Logged in.');
+        setSuccessMsg("Account created successfully! Logged in.");
         setTimeout(() => {
           onAuthSuccess(resp.user);
           onClose();
         }, 700);
       }
     } catch (err) {
-      setError(err.message || 'Authentication failed');
+      setError(err.message || "Authentication failed");
     } finally {
       setLoading(false);
     }
@@ -78,7 +80,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
             </div>
             <div>
               <h3 className="text-lg font-bold text-white tracking-tight">
-                {isLogin ? 'Sign In' : 'Create Account'}
+                {isLogin ? "Sign In" : "Create Account"}
               </h3>
               <p className="text-xs text-slate-400 font-mono">
                 Stateless JWT • HMAC-SHA256 • Redis Token Rotation
@@ -105,8 +107,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
               }}
               className={`py-2 text-xs font-semibold rounded-xl transition ${
                 isLogin
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? "bg-slate-800 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
               Sign In
@@ -120,8 +122,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
               }}
               className={`py-2 text-xs font-semibold rounded-xl transition ${
                 !isLogin
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? "bg-slate-800 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
               Register
@@ -220,7 +222,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
                 <span>Authenticating...</span>
               ) : (
                 <>
-                  <span>{isLogin ? 'Sign In to Account' : 'Register Account'}</span>
+                  <span>
+                    {isLogin ? "Sign In to Account" : "Register Account"}
+                  </span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}
@@ -235,7 +239,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => handleQuickLogin('test@example.com', 'secret123')}
+                onClick={() =>
+                  handleQuickLogin("test@example.com", "secret123")
+                }
                 className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-slate-700 text-left transition group"
               >
                 <div className="flex items-center justify-between">
@@ -253,7 +259,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
 
               <button
                 type="button"
-                onClick={() => handleQuickLogin('admin@ecommerce.internal', 'admin123')}
+                onClick={() =>
+                  handleQuickLogin("admin@ecommerce.internal", "admin123")
+                }
                 className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-slate-700 text-left transition group"
               >
                 <div className="flex items-center justify-between">

@@ -4,6 +4,32 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const TOKEN_KEY = 'highload_access_token';
 const REFRESH_KEY = 'highload_refresh_token';
 const USER_KEY = 'highload_user';
+const SESSION_KEY = 'highload_session_id';
+
+export function getSessionID() {
+  let sess = localStorage.getItem(SESSION_KEY);
+  if (!sess) {
+    sess =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `sess-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    localStorage.setItem(SESSION_KEY, sess);
+  }
+  return sess;
+}
+
+export function getAuthHeaders(extraHeaders = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Session-ID': getSessionID(),
+    ...extraHeaders,
+  };
+  const token = getAccessToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 export function getAccessToken() {
   return localStorage.getItem(TOKEN_KEY) || null;
@@ -282,4 +308,88 @@ export function subscribeToOrderStatus(orderId, onMessage, onError) {
   return () => {
     eventSource.close();
   };
+}
+
+// Cart API (Persistent in Redis L2)
+export async function fetchCart() {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/cart`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.warn('Failed to fetch cart from Redis:', err);
+    return null;
+  }
+}
+
+export async function addCartItemApi(productId, quantity = 1) {
+  const res = await fetch(`${API_BASE_URL}/api/v1/cart/items`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ product_id: productId, quantity }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to add item' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function updateCartItemApi(productId, quantity) {
+  const res = await fetch(`${API_BASE_URL}/api/v1/cart/items/${productId}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ quantity }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to update item' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function removeCartItemApi(productId) {
+  const res = await fetch(`${API_BASE_URL}/api/v1/cart/items/${productId}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to remove item' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function clearCartApi() {
+  const res = await fetch(`${API_BASE_URL}/api/v1/cart`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to clear cart' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function mergeGuestCartApi(items) {
+  if (!items || items.length === 0) return null;
+  const payload = {
+    items: items.map((it) => ({
+      product_id: it.id || it.product_id,
+      quantity: it.quantity,
+    })),
+  };
+  const res = await fetch(`${API_BASE_URL}/api/v1/cart/merge`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to merge cart' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
 }
