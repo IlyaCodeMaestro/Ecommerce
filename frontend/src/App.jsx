@@ -4,7 +4,15 @@ import ProductCard from "./components/ProductCard";
 import CartModal from "./components/CartModal";
 import OrderTrackingModal from "./components/OrderTrackingModal";
 import MetricsWidget from "./components/MetricsWidget";
-import { fetchProducts, fetchCategories, checkHealth } from "./services/api";
+import AuthModal from "./components/AuthModal";
+import {
+  fetchProducts,
+  fetchCategories,
+  checkHealth,
+  fetchCurrentUser,
+  logoutUser,
+  getStoredUser,
+} from "./services/api";
 import {
   Search,
   Sparkles,
@@ -125,6 +133,26 @@ export default function App() {
   // Telemetry modal state
   const [metricsOpen, setMetricsOpen] = useState(false);
 
+  // Authentication state
+  const [currentUser, setCurrentUser] = useState(() => getStoredUser());
+  const [authOpen, setAuthOpen] = useState(false);
+
+  // Check current user session on load
+  useEffect(() => {
+    fetchCurrentUser()
+      .then((user) => {
+        if (user) {
+          setCurrentUser(user);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLogout = async () => {
+    await logoutUser();
+    setCurrentUser(null);
+  };
+
   // Health check polling
   useEffect(() => {
     const checkStatus = async () => {
@@ -243,6 +271,9 @@ export default function App() {
         cartCount={cartTotalItems}
         onOpenCart={() => setCartOpen(true)}
         onOpenMetrics={() => setMetricsOpen(true)}
+        onOpenAuth={() => setAuthOpen(true)}
+        currentUser={currentUser}
+        onLogout={handleLogout}
         backendStatus={backendOnline}
         pingMs={pingMs}
       />
@@ -441,6 +472,14 @@ export default function App() {
         onRemove={removeFromCart}
         onClear={clearCart}
         onOrderPlaced={(orderInfo) => setPlacedOrder(orderInfo)}
+        currentUser={currentUser}
+      />
+
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={authOpen}
+        onClose={() => setAuthOpen(false)}
+        onAuthSuccess={(user) => setCurrentUser(user)}
       />
 
       {/* Real-Time Order Stream (SSE) Modal */}

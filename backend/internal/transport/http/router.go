@@ -1,6 +1,7 @@
 package http
 
 import (
+	"ecommerce-backend/internal/domain"
 	"ecommerce-backend/internal/repository/redis"
 
 	"github.com/go-chi/chi/v5"
@@ -22,13 +23,30 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
+		// Authentication endpoints with brute force protection
+		r.Route("/auth", func(authRouter chi.Router) {
+			authRouter.Use(RateLimitMiddleware(redisClient, 30, 60)) // 30 req/min per IP
+			authRouter.Post("/register", handler.Register)
+			authRouter.Post("/login", handler.Login)
+			authRouter.Post("/refresh", handler.RefreshToken)
+			authRouter.Post("/logout", handler.Logout)
+
+			// Protected user profile
+			authRouter.Group(func(protected chi.Router) {
+				protected.Use(AuthMiddleware(handler.authService))
+				protected.Get("/me", handler.GetMe)
+			})
+		})
+
 		r.Get("/categories", handler.GetCategories)
 		r.Get("/products", handler.ListProducts)
 		r.Get("/products/{id}", handler.GetProductByID)
 
 		// Orders endpoints with rate limiting on order creation
+		// Orders endpoints with rate limiting & optional JWT context
 		r.Group(func(orderRouter chi.Router) {
 			orderRouter.Use(RateLimitMiddleware(redisClient, 40, 60)) // 40 orders/min per IP
+			orderRouter.Use(OptionalAuthMiddleware(handler.authService))
 			orderRouter.Post("/orders", handler.CreateOrder)
 		})
 
@@ -38,6 +56,13 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 		// Payments & Webhook endpoints
 		r.Post("/payments/webhook", handler.PaymentWebhook)
 		r.Post("/payments/simulate", handler.SimulatePayment)
+
+		// Protected Admin routes (RBAC demonstration)
+		r.Group(func(adminRouter chi.Router) {
+			adminRouter.Use(AuthMiddleware(handler.authService))
+			adminRouter.Use(RequireRole(domain.RoleAdmin))
+			adminRouter.Get("/admin/stats", handler.GetAdminStats)
+		})
 	})
 
 	return r

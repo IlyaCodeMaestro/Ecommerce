@@ -56,18 +56,21 @@ func main() {
 	orderRepo := postgres.NewOrderRepo(db)
 	outboxRepo := postgres.NewOutboxRepo(db)
 	paymentRepo := postgres.NewPaymentRepo(db)
+	userRepo := postgres.NewUserRepo(db)
 
+	jwtSecret := getEnv("JWT_SECRET", "highload_super_jwt_secret_signing_key_2026")
 	webhookSecret := getEnv("WEBHOOK_SECRET", "whsec_highload_ecommerce_2026_super_secret")
 
 	productService := service.NewProductService(productRepo, redisClient)
 	orderService := service.NewOrderService(orderRepo, productRepo, outboxRepo, paymentRepo, redisClient, kafkaProducer, productService, webhookSecret)
+	authService := service.NewAuthService(userRepo, redisClient, jwtSecret)
 
 	// 5. Transactional Outbox Background Relay
 	outboxRelay := service.NewOutboxRelay(outboxRepo, kafkaProducer, 100*time.Millisecond, 50)
 	go outboxRelay.Start(ctx)
 
 	// 6. HTTP Handler & Router
-	handler := transporthttp.NewHandler(productService, orderService, redisClient)
+	handler := transporthttp.NewHandler(productService, orderService, authService, redisClient)
 	router := transporthttp.NewRouter(handler, redisClient)
 
 	// 6. Tuned HTTP Server for maximum throughput

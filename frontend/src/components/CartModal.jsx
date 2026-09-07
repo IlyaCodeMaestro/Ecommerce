@@ -17,6 +17,7 @@ export default function CartModal({
   onRemove,
   onClear,
   onOrderPlaced,
+  currentUser,
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -31,7 +32,8 @@ export default function CartModal({
     setError(null);
 
     try {
-      const res = await createOrder(cart);
+      const userId = currentUser ? currentUser.id : 'guest-user';
+      const res = await createOrder(cart, userId);
       onClear();
       onClose();
       if (onOrderPlaced) {
@@ -77,6 +79,20 @@ export default function CartModal({
             <div className="mb-4 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {currentUser ? (
+            <div className="mb-4 px-3.5 py-2 rounded-2xl bg-emerald-950/30 border border-emerald-500/20 text-xs flex items-center justify-between">
+              <span className="text-slate-400">Checkout As:</span>
+              <span className="font-mono text-emerald-400 font-semibold truncate max-w-[220px]">
+                {currentUser.first_name || currentUser.email} ({currentUser.role})
+              </span>
+            </div>
+          ) : (
+            <div className="mb-4 px-3.5 py-2 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs flex items-center justify-between">
+              <span className="text-slate-400">Checkout Mode:</span>
+              <span className="font-mono text-slate-400">Guest (Sign in optional)</span>
             </div>
           )}
 

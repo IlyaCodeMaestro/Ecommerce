@@ -19,13 +19,20 @@ import (
 type Handler struct {
 	productService *service.ProductService
 	orderService   *service.OrderService
+	authService    *service.AuthService
 	redisClient    *redis.Client
 }
 
-func NewHandler(productService *service.ProductService, orderService *service.OrderService, redisClient *redis.Client) *Handler {
+func NewHandler(
+	productService *service.ProductService,
+	orderService *service.OrderService,
+	authService *service.AuthService,
+	redisClient *redis.Client,
+) *Handler {
 	return &Handler{
 		productService: productService,
 		orderService:   orderService,
+		authService:    authService,
 		redisClient:    redisClient,
 	}
 }
@@ -127,6 +134,11 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	if req.UserID == "" {
 		req.UserID = "anon-user"
+		if claims := GetUserClaims(r.Context()); claims != nil && claims.UserID != "" {
+			req.UserID = claims.UserID
+		} else {
+			req.UserID = "anon-user"
+		}
 	}
 
 	// Extract Idempotency-Key from HTTP header if not in body
@@ -152,6 +164,7 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 202 Accepted: async order event published to Kafka
 	// 202 Accepted: async order event published to Kafka & persisted in Outbox
 	respondJSON(w, http.StatusAccepted, resp)
 }

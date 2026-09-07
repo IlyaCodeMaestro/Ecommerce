@@ -13,6 +13,7 @@ type Client struct {
 	reserveSHA     string
 	rateLimitSHA   string
 	idempotencySHA string
+	rotateTokenSHA string
 }
 
 // Lua script to atomically check and reserve stock without race conditions
@@ -62,6 +63,21 @@ else
 end
 `
 
+// Lua script for single-use Refresh Token Rotation
+// Atomically verifies old token exists, deletes it, and sets new token with TTL
+const rotateRefreshTokenScript = `
+local oldKey = KEYS[1]
+local newKey = KEYS[2]
+local ttl = tonumber(ARGV[1])
+local userId = redis.call('get', oldKey)
+if not userId then
+    return ''
+end
+redis.call('del', oldKey)
+redis.call('set', newKey, userId, 'ex', ttl)
+return userId
+`
+
 func NewClient(addr string) (*Client, error) {
 	rdb := redis.NewClient(&redis.Options{
 		Addr:         addr,
@@ -97,11 +113,17 @@ func NewClient(addr string) (*Client, error) {
 		return nil, fmt.Errorf("failed to load idempotency lua script: %w", err)
 	}
 
+	shaRotate, err := rdb.ScriptLoad(ctx, rotateRefreshTokenScript).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load refresh token rotation lua script: %w", err)
+	}
+
 	return &Client{
 		RDB:            rdb,
 		reserveSHA:     shaReserve,
 		rateLimitSHA:   shaRate,
 		idempotencySHA: shaIdempotency,
+		rotateTokenSHA: shaRotate,
 	}, nil
 }
 
@@ -189,6 +211,43 @@ func (c *Client) SaveIdempotency(ctx context.Context, key string, responseJSON s
 func (c *Client) ReleaseIdempotency(ctx context.Context, key string) error {
 	redisKey := fmt.Sprintf("idempotency:%s", key)
 	return c.RDB.Del(ctx, redisKey).Err()
+}
+
+// StoreRefreshToken saves a new refresh token for a user with TTL (e.g., 7 days)
+func (c *Client) StoreRefreshToken(ctx context.Context, token string, userID string, ttl time.Duration) error {
+	key := fmt.Sprintf("refresh_token:%s", token)
+	return c.RDB.Set(ctx, key, userID, ttl).Err()
+}
+
+// RotateRefreshToken atomically validates the old refresh token, deletes it, and sets the new token.
+// Returns the associated userID if valid, or empty string if expired/reused.
+func (c *Client) RotateRefreshToken(ctx context.Context, oldToken string, newToken string, ttl time.Duration) (string, error) {
+	oldKey := fmt.Sprintf("refresh_token:%s", oldToken)
+	newKey := fmt.Sprintf("refresh_token:%s", newToken)
+	ttlSec := int(ttl.Seconds())
+	if ttlSec <= 0 {
+		ttlSec = 7 * 24 * 3600
+	}
+
+	val, err := c.RDB.EvalSha(ctx, c.rotateTokenSHA, []string{oldKey, newKey}, ttlSec).Result()
+	if err != nil {
+		val, err = c.RDB.Eval(ctx, rotateRefreshTokenScript, []string{oldKey, newKey}, ttlSec).Result()
+		if err != nil {
+			return "", err
+		}
+	}
+
+	userID, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("unexpected return type from rotate lua: %T", val)
+	}
+	return userID, nil
+}
+
+// RevokeRefreshToken removes a refresh token immediately (e.g., on logout)
+func (c *Client) RevokeRefreshToken(ctx context.Context, token string) error {
+	key := fmt.Sprintf("refresh_token:%s", token)
+	return c.RDB.Del(ctx, key).Err()
 }
 
 // Publish broadcasts event to a Redis Pub/Sub channel
