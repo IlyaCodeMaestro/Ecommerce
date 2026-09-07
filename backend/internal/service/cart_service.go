@@ -9,6 +9,7 @@ import (
 	"ecommerce-backend/internal/domain"
 	"ecommerce-backend/internal/repository/postgres"
 	"ecommerce-backend/internal/repository/redis"
+	"ecommerce-backend/pkg/metrics"
 )
 
 var (
@@ -31,6 +32,7 @@ func NewCartService(redisClient *redis.Client, productRepo *postgres.ProductRepo
 
 // GetCart retrieves the active cart from Redis or returns a fresh initialized cart
 func (s *CartService) GetCart(ctx context.Context, cartKey string) (*domain.Cart, error) {
+	metrics.CartOperationsTotal.WithLabelValues("get").Inc()
 	if s.redisClient == nil {
 		return &domain.Cart{
 			CartKey: cartKey,
@@ -55,6 +57,7 @@ func (s *CartService) GetCart(ctx context.Context, cartKey string) (*domain.Cart
 
 // AddItem adds a product or increments quantity in the Redis cart
 func (s *CartService) AddItem(ctx context.Context, cartKey string, req domain.AddToCartRequest) (*domain.Cart, error) {
+	metrics.CartOperationsTotal.WithLabelValues("add").Inc()
 	if req.Quantity <= 0 {
 		return nil, ErrInvalidQuantity
 	}
@@ -112,6 +115,7 @@ func (s *CartService) AddItem(ctx context.Context, cartKey string, req domain.Ad
 
 // UpdateItem updates the exact quantity of a product in the cart
 func (s *CartService) UpdateItem(ctx context.Context, cartKey string, productID int64, quantity int) (*domain.Cart, error) {
+	metrics.CartOperationsTotal.WithLabelValues("update").Inc()
 	if quantity <= 0 {
 		return s.RemoveItem(ctx, cartKey, productID)
 	}
@@ -165,6 +169,7 @@ func (s *CartService) UpdateItem(ctx context.Context, cartKey string, productID 
 
 // RemoveItem removes a line item from the cart
 func (s *CartService) RemoveItem(ctx context.Context, cartKey string, productID int64) (*domain.Cart, error) {
+	metrics.CartOperationsTotal.WithLabelValues("remove").Inc()
 	cart, err := s.GetCart(ctx, cartKey)
 	if err != nil {
 		return nil, err
@@ -190,6 +195,7 @@ func (s *CartService) RemoveItem(ctx context.Context, cartKey string, productID 
 
 // ClearCart removes all items and deletes cart key from Redis
 func (s *CartService) ClearCart(ctx context.Context, cartKey string) error {
+	metrics.CartOperationsTotal.WithLabelValues("clear").Inc()
 	if s.redisClient != nil {
 		return s.redisClient.DeleteCart(ctx, cartKey)
 	}
@@ -198,6 +204,7 @@ func (s *CartService) ClearCart(ctx context.Context, cartKey string) error {
 
 // MergeCart merges guest cart items into a user's authenticated cart
 func (s *CartService) MergeCart(ctx context.Context, userCartKey string, guestItems []domain.AddToCartRequest) (*domain.Cart, error) {
+	metrics.CartOperationsTotal.WithLabelValues("merge").Inc()
 	cart, err := s.GetCart(ctx, userCartKey)
 	if err != nil {
 		return nil, err

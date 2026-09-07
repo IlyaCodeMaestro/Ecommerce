@@ -58,4 +58,20 @@ var (
 			Help: "Number of idle connections currently in the PostgreSQL pool.",
 		},
 	)
+
+	AuthAttemptsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "auth_attempts_total",
+			Help: "Total number of authentication attempts partitioned by type (login, register, refresh) and status (success, failure).",
+		},
+		[]string{"type", "status"},
+	)
+
+	CartOperationsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "cart_operations_total",
+			Help: "Total number of cart mutations partitioned by operation (get, add, update, remove, clear, merge).",
+		},
+		[]string{"operation"},
+	)
 )

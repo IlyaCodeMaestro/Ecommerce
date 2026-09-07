@@ -1,0 +1,101 @@
+groups:
+  - name: ecommerce-highload-alerts
+    rules:
+      # 1. Google SRE Golden Signal: Errors (HTTP 5xx > 1%)
+      - alert: HighErrorRate5xx
+        expr: (sum(rate(http_requests_total{status=~"5.."}[2m])) / sum(rate(http_requests_total[2m]))) * 100 > 1
+        for: 1m
+        labels:
+          severity: critical
+          tier: backend
+        annotations:
+          summary: "High HTTP 5xx error rate detected"
+          description: "HTTP 5xx error rate is {{ $value | printf \"%.2f\" }}% over the last 2 minutes, exceeding the 1% SLO threshold."
+
+      # 2. Google SRE Golden Signal: Latency (p99 > 50ms)
+      - alert: HighP99Latency
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[2m])) by (le)) * 1000 > 50
+        for: 2m
+        labels:
+          severity: warning
+          tier: backend
+        annotations:
+          summary: "API p99 latency exceeds 50ms"
+          description: "API p99 latency is {{ $value | printf \"%.2f\" }}ms over the last 2 minutes (SLA threshold: 50ms)."
+
+      # 3. Google SRE Golden Signal: Latency Critical (p99 > 200ms)
+      - alert: CriticalP99Latency
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[2m])) by (le)) * 1000 > 200
+        for: 1m
+        labels:
+          severity: critical
+          tier: backend
+        annotations:
+          summary: "Critical API latency degradation"
+          description: "API p99 latency spiked to {{ $value | printf \"%.2f\" }}ms. Immediate intervention required."
+
+      # 4. Google SRE Golden Signal: Saturation (PostgreSQL Pool Exhaustion)
+      - alert: PostgresPoolExhaustion
+        expr: db_pool_idle_connections == 0
+        for: 1m
+        labels:
+          severity: critical
+          tier: database
+        annotations:
+          summary: "PostgreSQL connection pool exhausted"
+          description: "No idle connections available in PostgreSQL pool. Database starvation detected."
+
+      # 5. Caching Layer Health (Hit Rate < 70%)
+      - alert: CacheHitRateDegraded
+        expr: (sum(rate(cache_operations_total{status="hit"}[5m])) / sum(rate(cache_operations_total[5m]))) * 100 < 70
+        for: 3m
+        labels:
+          severity: warning
+          tier: cache
+        annotations:
+          summary: "Multi-tier cache hit rate degraded"
+          description: "Combined L1/L2 cache hit rate is {{ $value | printf \"%.2f\" }}% (below 70% threshold). Increased load hitting database."
+
+      # 6. Asynchronous Queue Saturation (Kafka Consumer Lag)
+      - alert: KafkaConsumerLag
+        expr: (rate(kafka_orders_produced_total[5m]) - rate(kafka_orders_consumed_total[5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+          tier: queue
+        annotations:
+          summary: "Kafka batch consumer worker lagging"
+          description: "Order consumption backlog rate is exceeding production by {{ $value | printf \"%.2f\" }} ops/s."
+
+      # 7. Security & Abuse: Auth Failure Spike
+      - alert: HighFailedAuthSpike
+        expr: sum(rate(auth_attempts_total{status="failure"}[2m])) > 20
+        for: 1m
+        labels:
+          severity: warning
+          tier: auth
+        annotations:
+          summary: "Authentication failure spike detected"
+          description: "Failed auth rate is {{ $value | printf \"%.2f\" }} failures/s. Potential brute force or credential stuffing attack."
+
+      # 8. Milestone Signal: 10,000 RPS Target Reached
+      - alert: TargetThroughputReached
+        expr: sum(rate(http_requests_total[1m])) >= 10000
+        for: 1m
+        labels:
+          severity: info
+          tier: load
+        annotations:
+          summary: "Target 10,000 RPS reached"
+          description: "Cluster is currently handling {{ $value | printf \"%.0f\" }} requests per second."
+
+      # 9. Liveness: Service Down
+      - alert: InstanceDown
+        expr: up == 0
+        for: 30s
+        labels:
+          severity: critical
+          tier: infrastructure
+        annotations:
+          summary: "Target instance unreachable"
+          description: "Instance {{ $labels.instance }} of job {{ $labels.job }} is not responding to Prometheus scrapes."

@@ -1,15 +1,18 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 
 	"ecommerce-backend/internal/domain"
+	"ecommerce-backend/internal/repository/postgres"
 	"ecommerce-backend/internal/repository/redis"
 	"ecommerce-backend/internal/service"
 
@@ -22,6 +25,7 @@ type Handler struct {
 	authService    *service.AuthService
 	cartService    *service.CartService
 	redisClient    *redis.Client
+	db             *postgres.DB
 }
 
 func NewHandler(
@@ -30,6 +34,7 @@ func NewHandler(
 	authService *service.AuthService,
 	cartService *service.CartService,
 	redisClient *redis.Client,
+	db *postgres.DB,
 ) *Handler {
 	return &Handler{
 		productService: productService,
@@ -37,14 +42,90 @@ func NewHandler(
 		authService:    authService,
 		cartService:    cartService,
 		redisClient:    redisClient,
+		db:             db,
 	}
 }
 
+// HealthCheck serves Kubernetes liveness probes
 func (h *Handler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":    "ok",
 		"timestamp": time.Now().UTC(),
-		"version":   "1.1.0-production",
+		"version":   "1.2.0-production",
+	})
+}
+
+// ReadinessCheck serves Kubernetes readiness probes by verifying PostgreSQL and Redis connections
+func (h *Handler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	checks := map[string]string{
+		"postgres": "up",
+		"redis":    "up",
+	}
+	allHealthy := true
+
+	if h.db != nil && h.db.Pool != nil {
+		if err := h.db.Pool.Ping(ctx); err != nil {
+			checks["postgres"] = fmt.Sprintf("down: %v", err)
+			allHealthy = false
+		}
+	}
+
+	if h.redisClient != nil && h.redisClient.RDB != nil {
+		if err := h.redisClient.RDB.Ping(ctx).Err(); err != nil {
+			checks["redis"] = fmt.Sprintf("down: %v", err)
+			allHealthy = false
+		}
+	}
+
+	status := http.StatusOK
+	respStatus := "healthy"
+	if !allHealthy {
+		status = http.StatusServiceUnavailable
+		respStatus = "degraded"
+	}
+
+	respondJSON(w, status, map[string]interface{}{
+		"status":     respStatus,
+		"timestamp":  time.Now().UTC(),
+		"components": checks,
+	})
+}
+
+type AlertNotification struct {
+	Receiver string `json:"receiver"`
+	Status   string `json:"status"`
+	Alerts   []struct {
+		Status      string            `json:"status"`
+		Labels      map[string]string `json:"labels"`
+		Annotations map[string]string `json:"annotations"`
+		StartsAt    time.Time         `json:"startsAt"`
+		EndsAt      time.Time         `json:"endsAt"`
+	} `json:"alerts"`
+}
+
+// AlertWebhook handles incoming alerts pushed from Prometheus Alertmanager
+func (h *Handler) AlertWebhook(w http.ResponseWriter, r *http.Request) {
+	var notification AlertNotification
+	if err := json.NewDecoder(r.Body).Decode(&notification); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid alertmanager payload")
+		return
+	}
+
+	for _, alert := range notification.Alerts {
+		log.Printf("[ALERTMANAGER] Alert: %s | Severity: %s | Status: %s | Description: %s",
+			alert.Labels["alertname"],
+			alert.Labels["severity"],
+			alert.Status,
+			alert.Annotations["description"],
+		)
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"status":   "received",
+		"received": len(notification.Alerts),
 	})
 }
 

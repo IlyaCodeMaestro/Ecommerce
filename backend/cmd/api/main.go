@@ -71,7 +71,7 @@ func main() {
 	go outboxRelay.Start(ctx)
 
 	// 6. HTTP Handler & Router
-	handler := transporthttp.NewHandler(productService, orderService, authService, cartService, redisClient)
+	handler := transporthttp.NewHandler(productService, orderService, authService, cartService, redisClient, db)
 	router := transporthttp.NewRouter(handler, redisClient)
 
 	// 6. Tuned HTTP Server for maximum throughput

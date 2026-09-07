@@ -20,6 +20,7 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 	// Metrics & Probe endpoints
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/healthz", handler.HealthCheck)
+	r.Get("/readyz", handler.ReadinessCheck)
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -74,6 +75,10 @@ func NewRouter(handler *Handler, redisClient *redis.Client) *chi.Mux {
 			adminRouter.Use(RequireRole(domain.RoleAdmin))
 			adminRouter.Get("/admin/stats", handler.GetAdminStats)
 		})
+
+		// Internal Alertmanager Webhook receivers
+		r.Post("/internal/alerts", handler.AlertWebhook)
+		r.Post("/internal/alerts/critical", handler.AlertWebhook)
 	})
 
 	return r

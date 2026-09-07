@@ -12,6 +12,7 @@ import (
 	"ecommerce-backend/internal/domain"
 	"ecommerce-backend/internal/repository/postgres"
 	"ecommerce-backend/internal/repository/redis"
+	"ecommerce-backend/pkg/metrics"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -52,19 +53,23 @@ func NewAuthService(
 func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) (*domain.AuthResponse, error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	if email == "" || len(req.Password) < 6 {
+		metrics.AuthAttemptsTotal.WithLabelValues("register", "failure").Inc()
 		return nil, errors.New("valid email and password of at least 6 characters required")
 	}
 
 	existing, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("register", "failure").Inc()
 		return nil, fmt.Errorf("failed to check existing user: %w", err)
 	}
 	if existing != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("register", "failure").Inc()
 		return nil, ErrUserAlreadyExists
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("register", "failure").Inc()
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
@@ -86,36 +91,56 @@ func (s *AuthService) Register(ctx context.Context, req domain.RegisterRequest) 
 	}
 
 	if err := s.userRepo.Create(ctx, user); err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("register", "failure").Inc()
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	return s.generateTokenPair(ctx, &user)
+	resp, err := s.generateTokenPair(ctx, &user)
+	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("register", "failure").Inc()
+		return nil, err
+	}
+
+	metrics.AuthAttemptsTotal.WithLabelValues("register", "success").Inc()
+	return resp, nil
 }
 
 func (s *AuthService) Login(ctx context.Context, req domain.LoginRequest) (*domain.AuthResponse, error) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("login", "failure").Inc()
 		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
 	if user == nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("login", "failure").Inc()
 		return nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("login", "failure").Inc()
 		return nil, ErrInvalidCredentials
 	}
 
-	return s.generateTokenPair(ctx, user)
+	resp, err := s.generateTokenPair(ctx, user)
+	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("login", "failure").Inc()
+		return nil, err
+	}
+
+	metrics.AuthAttemptsTotal.WithLabelValues("login", "success").Inc()
+	return resp, nil
 }
 
 func (s *AuthService) RefreshToken(ctx context.Context, oldRefreshToken string) (*domain.AuthResponse, error) {
 	if strings.TrimSpace(oldRefreshToken) == "" {
+		metrics.AuthAttemptsTotal.WithLabelValues("refresh", "failure").Inc()
 		return nil, ErrInvalidToken
 	}
 
 	newRefreshToken, err := generateRandomToken(32)
 	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("refresh", "failure").Inc()
 		return nil, fmt.Errorf("failed to generate random token: %w", err)
 	}
 
@@ -123,22 +148,27 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldRefreshToken string) 
 	if s.redisClient != nil {
 		userID, err = s.redisClient.RotateRefreshToken(ctx, oldRefreshToken, newRefreshToken, s.refreshTokenTTL)
 		if err != nil || userID == "" {
+			metrics.AuthAttemptsTotal.WithLabelValues("refresh", "failure").Inc()
 			return nil, ErrInvalidToken
 		}
 	} else {
+		metrics.AuthAttemptsTotal.WithLabelValues("refresh", "failure").Inc()
 		return nil, errors.New("redis unavailable for token rotation")
 	}
 
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil || user == nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("refresh", "failure").Inc()
 		return nil, ErrUserNotFound
 	}
 
 	accessToken, expiresIn, err := s.CreateAccessToken(user)
 	if err != nil {
+		metrics.AuthAttemptsTotal.WithLabelValues("refresh", "failure").Inc()
 		return nil, err
 	}
 
+	metrics.AuthAttemptsTotal.WithLabelValues("refresh", "success").Inc()
 	return &domain.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: newRefreshToken,

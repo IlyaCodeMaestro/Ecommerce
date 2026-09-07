@@ -113,6 +113,18 @@ services:
       redpanda:
         condition: service_healthy
 
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ecommerce-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+
   prometheus:
     image: prom/prometheus:v2.51.0
     container_name: ecommerce-prometheus
@@ -121,8 +133,10 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     depends_on:
       - backend-api
+      - alertmanager
 
   grafana:
     image: grafana/grafana:10.4.0
