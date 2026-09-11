@@ -49,3 +49,4 @@ func TestOrderStatus_CanTransitionTo(t *testing.T) {
 		}
 	}
 }
+

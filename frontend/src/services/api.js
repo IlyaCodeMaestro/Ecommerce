@@ -393,3 +393,56 @@ export async function mergeGuestCartApi(items) {
   }
   return await res.json();
 }
+
+// Order Saga & Lifecycle Management APIs
+export async function fetchUserOrdersApi(limit = 20, offset = 0) {
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders?limit=${limit}&offset=${offset}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to fetch orders' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function cancelOrderApi(orderId, reason = '') {
+  const res = await fetch(`${API_BASE_URL}/api/v1/orders/${orderId}/cancel`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to cancel order' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function adminListOrdersApi(status = '', limit = 20, offset = 0) {
+  const url = status
+    ? `${API_BASE_URL}/api/v1/admin/orders?status=${status}&limit=${limit}&offset=${offset}`
+    : `${API_BASE_URL}/api/v1/admin/orders?limit=${limit}&offset=${offset}`;
+  const res = await fetch(url, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to fetch admin orders' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+export async function adminUpdateOrderStatusApi(orderId, newStatus) {
+  const res = await fetch(`${API_BASE_URL}/api/v1/admin/orders/${orderId}/status`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status: newStatus }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Failed to update order status' }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+

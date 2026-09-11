@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"ecommerce-backend/internal/domain"
+
 	"github.com/jackc/pgx/v5"
 )
 
@@ -355,5 +356,3 @@ func (r *OrderRepo) GetStaleOrders(ctx context.Context, olderThan time.Duration,
 
 	return orders, nil
 }
-
-

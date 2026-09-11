@@ -3,6 +3,7 @@ import Header from "./components/Header";
 import ProductCard from "./components/ProductCard";
 import CartModal from "./components/CartModal";
 import OrderTrackingModal from "./components/OrderTrackingModal";
+import OrderHistoryModal from "./components/OrderHistoryModal";
 import MetricsWidget from "./components/MetricsWidget";
 import AuthModal from "./components/AuthModal";
 import {
@@ -135,6 +136,7 @@ export default function App() {
 
   // Order tracking state
   const [placedOrder, setPlacedOrder] = useState(null);
+  const [ordersOpen, setOrdersOpen] = useState(false);
 
   // Telemetry modal state
   const [metricsOpen, setMetricsOpen] = useState(false);
@@ -344,6 +346,7 @@ export default function App() {
       <Header
         cartCount={cartTotalItems}
         onOpenCart={() => setCartOpen(true)}
+        onOpenOrders={() => setOrdersOpen(true)}
         onOpenMetrics={() => setMetricsOpen(true)}
         onOpenAuth={() => setAuthOpen(true)}
         currentUser={currentUser}
@@ -563,6 +566,14 @@ export default function App() {
         isOpen={!!placedOrder}
         onClose={() => setPlacedOrder(null)}
         orderData={placedOrder}
+      />
+
+      {/* Order History & Fulfillment Saga Modal */}
+      <OrderHistoryModal
+        isOpen={ordersOpen}
+        onClose={() => setOrdersOpen(false)}
+        currentUser={currentUser}
+        onOpenAuth={() => setAuthOpen(true)}
       />
 
       {/* Telemetry & Benchmark Modal */}

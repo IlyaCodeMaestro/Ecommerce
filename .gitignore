@@ -52,6 +52,7 @@ deploy/redpanda/data/
 
 # Internal Engineering & Dev Docs (not for production git)
 SYSTEM_INTERNALS.md
+ARCHITECTURE_SYSTEM_BIBLE.md
 *.dev.md
 DEV_*.md
 

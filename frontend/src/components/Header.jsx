@@ -8,11 +8,13 @@ import {
   User,
   LogOut,
   Shield,
+  Package,
 } from "lucide-react";
 
 export default function Header({
   cartCount,
   onOpenCart,
+  onOpenOrders,
   onOpenMetrics,
   onOpenAuth,
   currentUser,
@@ -110,6 +112,16 @@ export default function Header({
               <span>Sign In</span>
             </button>
           )}
+
+          {/* Orders Button */}
+          <button
+            onClick={onOpenOrders}
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition text-sm font-medium"
+            title="View Order History & Saga Tracking"
+          >
+            <Package className="w-4 h-4 text-emerald-400" />
+            <span className="hidden sm:inline">Orders</span>
+          </button>
 
           {/* Cart Button */}
           <button

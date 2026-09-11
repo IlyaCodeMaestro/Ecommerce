@@ -10,6 +10,7 @@ import (
 	"ecommerce-backend/internal/repository/postgres"
 	"ecommerce-backend/internal/repository/redis"
 	"ecommerce-backend/pkg/metrics"
+
 	"golang.org/x/sync/singleflight"
 )
 
